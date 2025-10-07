@@ -1,45 +1,65 @@
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from PIL import Image
-import torch
-import json
-import csv
 import os
-from typing import Optional, Dict, List, Tuple
+import csv
+import json
+import torch
 import logging
+import numpy as np
+import pandas as pd
+
+from PIL import Image
+from pathlib import Path
+from typing import Optional, Dict
 
 # Grounding DINO
 from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import annotate, load_image, predict
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+FORMAT = '%(asctime)s %(levelname)s %(message)s'
+logging.basicConfig(level = logging.INFO, format = FORMAT)
 logger = logging.getLogger(__name__)
-
 
 class GSAMDatasetLabeler:
     
     def __init__(
         self,
-        csv_path: Path,
-        img_dir: Path,
-        root_dir: Path,
-        out_root: Path,
+        root,
+        img_dir,
+        csv_path,
+        out_root,
         gd_model,
         sam_predictor,
         device,
         compute_iou,
         load_gt_mask,
         to_numpy_image,
-        box_threshold: float = 0.35,
+        box_threshold: float = 0.30,
         text_threshold: float = 0.25,
-        iou_threshold: float = 0.5,
-        max_images: Optional[int] = None
-    ):
-        self.csv_path = csv_path
+        iou_threshold: float = 0.75,
+        max_images: Optional[int] = None    # for test purpose
+    ) -> None:
+        """
+        Initializes GSAMDatasetLabeler class. GSAM is used to label custom dataset.
+
+        Args:
+            root (Path): Root directory for images and ground truth masks.
+            img_dir (Path): Directory containing dataset original images.
+            csv_path (Path): CSV file path containing dataset metadata.
+            out_root (Path): Output directory for storing results.
+            gd_model: Grounding DINO model instance.
+            sam_predictor: SAM predictor instance.
+            device (torch.device): Device on which to run models.
+            compute_iou (Callable): Function to compute IoU between masks.
+            load_gt_mask (Callable): Function to load ground truth mask of a specified image.
+            to_numpy_image (Callable): Function to convert images from tensors to numpy arrays.
+            box_threshold (float, optional): Confidence threshold for bounding boxes. Default 0.30.
+            text_threshold (float, optional): Confidence threshold for text predictions. Default 0.25.
+            iou_threshold (float, optional): IoU threshold for keeping masks. Default 0.75.
+            max_images (Optional[int], optional): Maximum number of images to process. Default None.
+        """
+        self.root = root
         self.img_dir = img_dir
-        self.root_dir = root_dir
+        self.csv_path = csv_path
         self.out_root = out_root
         self.gd_model = gd_model
         self.sam_predictor = sam_predictor
@@ -51,6 +71,7 @@ class GSAMDatasetLabeler:
         self.iou_threshold = iou_threshold
         self.max_images = max_images
 
+        # Callables
         self.compute_iou = compute_iou
         self.load_gt_mask = load_gt_mask
         self.to_numpy_image = to_numpy_image
@@ -60,52 +81,27 @@ class GSAMDatasetLabeler:
         self.discarded_dir = out_root / "discarded"
         self.lbl_path = out_root / "labels.csv"
         
-        # COCO structure
-        self.coco = {
-            "images": [],
-            "annotations": [],
-            "categories": []
-        }
-        self.annotation_id = 1
-        self.category_map = {}  # category_name -> category_id
-        
-    def setup_directories(self):
-        """Crea le directory necessarie"""
-        os.makedirs(self.kept_dir, exist_ok=True)
-        os.makedirs(self.discarded_dir, exist_ok=True)
-        os.makedirs(self.out_root, exist_ok=True)
-        
-    def get_or_create_category(self, category_name: str) -> int:
-        """Ottiene o crea una categoria COCO"""
-        if category_name not in self.category_map:
-            cat_id = len(self.category_map) + 1
-            self.category_map[category_name] = cat_id
-            self.coco["categories"].append({
-                "id": cat_id,
-                "name": category_name,
-                "supercategory": "object"
-            })
-        return self.category_map[category_name]
-    
-    def mask_to_coco_rle(self, mask: np.ndarray) -> Dict:
-        """Converti maschera binaria in formato RLE COCO (semplificato)"""
-        # Nota: questa è una versione semplificata. Per COCO reale usa pycocotools
-        from itertools import groupby
-        pixels = mask.flatten()
-        rle = []
-        for value, group in groupby(pixels):
-            rle.append(len(list(group)))
-        return {"counts": rle, "size": list(mask.shape)}
-    
-    def process_single_image(
-        self,
-        img_id: int,
-        row: pd.Series,
-        lbl_writer: csv.DictWriter
-    ) -> bool:
+    def create_directories(self):
         """
-        Processa una singola immagine
-        Returns: True se processata con successo, False altrimenti
+        Create necessary output directories.
+        """
+        os.makedirs(self.out_root, exist_ok = True)
+        os.makedirs(self.kept_dir, exist_ok = True)
+        os.makedirs(self.discarded_dir, exist_ok = True)
+    
+    def process_single_image(self, row: pd.Series, lbl_writer: csv.DictWriter) -> bool:
+        """
+        Processes one single image using GSAM. Grounding DINO is used to predict bounding boxes, 
+        SAM to generate masks. Generated masks are then compared against the ground truth. If a 
+        GSAM mask with IoU greater than iou value specified as parameter against the Ground 
+        Truth exists, the current image is kept. Otherwise it is temporarily discarded.
+
+        Args:
+            row (pd.Series): Row from CSV file containing image information.
+            lbl_writer (csv.DictWriter): CSV writer for saving label information.
+
+        Returns:
+            bool: True if the image was successfully processed. Otherwise False.
         """
         image_name = row['image_name']
         class_name = row['target_type']
@@ -113,63 +109,54 @@ class GSAMDatasetLabeler:
         logger.info(f"\nProcessing '{image_name}' (class '{class_name}')")
         
         try:
-            # 1. Carica immagine
+            # 1. Load image to process
             image_path = self.img_dir / image_name
             if not image_path.exists():
-                logger.warning(f"Image not found: {image_path}")
+                logger.warning(f"Image not found: '{image_path}'")
                 return False
             
-            image, image_transformed = load_image(str(image_path))
+            image, image_transformed = load_image(str(image_path))  # np.array, torch.Tensor
             height, width, _ = image.shape
             
             # 2. Run Grounding DINO
             boxes, logits, phrases = predict(
-                model=self.gd_model,
-                image=image_transformed,
-                caption=class_name,
-                box_threshold=self.box_threshold,
-                text_threshold=self.text_threshold
+                model = self.gd_model,
+                image = image_transformed,
+                caption = class_name,
+                box_threshold = self.box_threshold,
+                text_threshold = self.text_threshold
             )
             
-            # 3. Carica ground truth
-            gt_path = self.load_gt_mask(self.root_dir, image_name)
+            # 3. Load ground truth mask and convert it in binary
+            gt_path = self.load_gt_mask(self.root, image_name)
             if gt_path is None:
-                logger.warning(f"Ground truth not found for '{image_name}'")
+                logger.warning(f"Ground truth mask not found for '{image_name}'")
                 return False
             
-            gt_mask = Image.open(gt_path).convert(mode="L")
+            gt_mask = Image.open(gt_path).convert(mode = "L")
             gt_mask_np = np.array(gt_mask)
+            # print(np.unique(gt_mask_np))
             gt_mask_bin = (gt_mask_np > 127).astype(np.uint8)
             
-            # 4. Registra immagine COCO
-            self.coco["images"].append({
-                "id": img_id,
-                "file_name": image_name,
-                "width": width,
-                "height": height
-            })
-            
-            # 5. Check detections
+            # 4. Check detections
             if boxes is None or len(boxes) == 0:
-                logger.warning(f"No detections for '{image_name}'")
+                logger.warning(f"No Grounding DINO detections for '{image_name}'")
                 return False
             
-            # 6. Run SAM
+            # 5. Run segmentation model
             self.sam_predictor.set_image(image)
             
-            boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])
-            transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(
-                boxes_xyxy, image.shape[:2]
-            ).to(self.device)
+            boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
+            transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             
             masks, _, _ = self.sam_predictor.predict_torch(
-                point_coords=None,
-                point_labels=None,
-                boxes=transformed_boxes,
-                multimask_output=False,
+                point_coords = None,
+                point_labels = None,
+                boxes = transformed_boxes,
+                multimask_output = False,
             )
             
-            # 7. Valuta maschere
+            # 6. Evaluate masks and find the best
             masks_info = []
             
             for i, mask_tensor in enumerate(masks):
@@ -185,37 +172,29 @@ class GSAMDatasetLabeler:
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
             
-            # 8. Trova la migliore
-            best = max(masks_info, key=lambda x: x["iou"])
-            base_name = Path(image_name).stem
+            best = max(masks_info, key = lambda x: x["iou"])
+            base_name = Path(image_name).stem   # without extension
             
-            # 9. Salva risultati
+            # 7. Save results
             is_kept = best["iou"] >= self.iou_threshold
             target_dir = self.kept_dir if is_kept else self.discarded_dir
             out_image_dir = target_dir / base_name
-            os.makedirs(out_image_dir, exist_ok=True)
+            os.makedirs(out_image_dir, exist_ok = True)
             
-            # Salva immagine originale e GT
-            Image.fromarray(self.to_numpy_image(image)).save(
-                out_image_dir / f"{base_name}__img.png"
-            )
-            Image.fromarray((gt_mask_bin * 255).astype(np.uint8)).save(
-                out_image_dir / f"{base_name}__gt.png"
-            )
-            
-            # Salva maschere e crea annotations
-            category_id = self.get_or_create_category(class_name)
+            # 7a. save original image and corresponding ground truth for reference
+            Image.fromarray(self.to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
+            Image.fromarray((gt_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
             
             for info in masks_info:
                 is_odd = (info["index"] == best["index"]) and is_kept
                 
-                # Salva maschera
+                # 7b. save masks odd and normal
                 mask_suffix = "__ODD" if is_odd else ""
                 mask_filename = f"{base_name}__mask_box{info['index']}{mask_suffix}.png"
                 mask_path = out_image_dir / mask_filename
                 Image.fromarray((info["mask"] * 255).astype(np.uint8)).save(mask_path)
                 
-                # Scrivi nel CSV
+                # 7c. write CSV file
                 lbl_writer.writerow({
                     "image_name": image_name,
                     "mask_filename": str(mask_path.relative_to(self.out_root)),
@@ -225,35 +204,12 @@ class GSAMDatasetLabeler:
                     "confidence": f"{info['logit']:.3f}",
                     "category": info["phrase"]
                 })
-                
-                # Aggiungi annotation COCO (solo per kept)
-                if is_kept:
-                    # Calcola bounding box dalla maschera
-                    y_indices, x_indices = np.where(info["mask"])
-                    if len(y_indices) > 0:
-                        x_min, x_max = x_indices.min(), x_indices.max()
-                        y_min, y_max = y_indices.min(), y_indices.max()
-                        bbox = [int(x_min), int(y_min), int(x_max - x_min), int(y_max - y_min)]
-                        area = int(info["mask"].sum())
-                        
-                        self.coco["annotations"].append({
-                            "id": self.annotation_id,
-                            "image_id": img_id,
-                            "category_id": category_id,
-                            "bbox": bbox,
-                            "area": area,
-                            "segmentation": self.mask_to_coco_rle(info["mask"]),
-                            "iscrowd": 0,
-                            "iou_with_gt": float(info["iou"]),
-                            "is_best": is_odd
-                        })
-                        self.annotation_id += 1
             
-            # 10. Log risultato
+            # 8. Log result
             if is_kept:
-                logger.info(f"✓ KEPT - best IoU = {best['iou']:.3f} (mask {best['index']} marked as ODD)")
+                logger.info(f"KEPT - best IoU = {best['iou']:.3f} (mask {best['index']} marked as ODD)")
             else:
-                logger.info(f"✗ DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
+                logger.info(f"DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
             
             return True
             
@@ -262,28 +218,30 @@ class GSAMDatasetLabeler:
             return False
     
     def run(self):
-        """Esegue il labeling completo"""
-        logger.info("="*80)
-        logger.info("Starting GSAM Dataset Labeling")
-        logger.info("="*80)
+        """
+        Run the GSAM dataset labeling.
+        """
+        logger.info("=" * 80)
+        logger.info("Starting GSAM Dataset Labeling Process...")
+        logger.info("=" * 80)
         
-        # Setup
-        self.setup_directories()
+        # Setup output directories
+        self.create_directories()
         
-        # Carica CSV
-        img_props = pd.read_csv(self.csv_path, sep=",")
+        # Load CSV
+        img_props = pd.read_csv(self.csv_path, sep = ",")
         total_images = len(img_props) if self.max_images is None else min(len(img_props), self.max_images)
-        logger.info(f"Processing {total_images} images from {len(img_props)} total")
+        logger.info(f"Processing {total_images} images from {len(img_props)} total.")
         
-        # Apri file CSV per labels
-        lbl_file = open(self.lbl_path, 'w', newline='')
+        # Open CSV file for labels
+        lbl_file = open(self.lbl_path, mode = 'w', newline = '')
         lbl_writer = csv.DictWriter(lbl_file, fieldnames=[
             "image_name", "mask_filename", "is_odd", "is_kept", 
             "iou", "confidence", "category"
         ])
         lbl_writer.writeheader()
         
-        # Processa immagini
+        # Process images
         img_id = 1
         try:
             for index, row in img_props.iterrows():
@@ -291,12 +249,6 @@ class GSAMDatasetLabeler:
                     break
                 
                 if self.process_single_image(img_id, row, lbl_writer):
-                    img_id += 1
-                    
+                    img_id += 1        
         finally:
             lbl_file.close()
-        
-        # Salva COCO
-        coco_path = self.out_root / "gsam_annotations.json"
-        with open(coco_path, "w") as f:
-            json.dump(self.coco, f, indent=2)
