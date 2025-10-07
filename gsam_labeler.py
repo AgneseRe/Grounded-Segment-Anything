@@ -242,13 +242,12 @@ class GSAMDatasetLabeler:
         lbl_writer.writeheader()
         
         # Process images
-        img_id = 1
         try:
             for index, row in img_props.iterrows():
+                # for processing a certain number of images, not all 
                 if self.max_images is not None and index >= self.max_images:
                     break
-                
-                if self.process_single_image(img_id, row, lbl_writer):
-                    img_id += 1        
+                else:   # all images
+                    self.process_single_image(row, lbl_writer)    
         finally:
             lbl_file.close()
