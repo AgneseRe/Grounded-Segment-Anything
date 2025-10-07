@@ -37,6 +37,17 @@ def load_model(model_config_path: str, model_checkpoint_path: str, device: str =
 
 
 def load_image(image_path: str) -> Tuple[np.array, torch.Tensor]:
+    """
+    Loads image from a specified path and applies necessary transformations for inference.
+
+    Args:
+        image_path (str): Path to the image file.
+
+    Returns:
+        Tuple[np.array, torch.Tensor]: A tuple containing the original image as a NumPy array 
+        and the transformed image as a PyTorch tensor. The transformed image is resized, scaled
+        to [0.0, 1.0], converted to a PyTorch tensor and normalized with ImageNet statistics.
+    """
     transform = T.Compose(
         [
             T.RandomResize([800], max_size=1333),
