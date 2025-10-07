@@ -89,7 +89,6 @@ def annotate(image_source: np.ndarray, boxes: torch.Tensor, logits: torch.Tensor
     h, w, _ = image_source.shape
     boxes = boxes * torch.Tensor([w, h, w, h])
     xyxy = box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xyxy").numpy()
-    detections = sv.Detections(xyxy=xyxy)
 
     labels = [
         f"{phrase} {logit:.2f}"
@@ -97,9 +96,11 @@ def annotate(image_source: np.ndarray, boxes: torch.Tensor, logits: torch.Tensor
         in zip(phrases, logits)
     ]
 
+    # CHANGED HERE to avoid TypeError: BoxAnnotator.annotate() got an unexpected keyword argument 'labels'
+    detections = sv.Detections(xyxy=xyxy, data={'labels':labels})
     box_annotator = sv.BoxAnnotator()
     annotated_frame = cv2.cvtColor(image_source, cv2.COLOR_RGB2BGR)
-    annotated_frame = box_annotator.annotate(scene=annotated_frame, detections=detections, labels=labels)
+    annotated_frame = box_annotator.annotate(scene=annotated_frame, detections=detections)
     return annotated_frame
 
 
