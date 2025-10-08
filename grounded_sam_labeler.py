@@ -8,11 +8,15 @@ import pandas as pd
 
 from PIL import Image
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional
+from argparse import ArgumentParser
 
 # Grounding DINO
 from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import annotate, load_image, predict
+
+# GSAM utilities
+from grounded_sam_labeler_util import compute_iou, load_gt_mask, to_numpy_image
 
 # Setup logging
 FORMAT = '%(asctime)s %(levelname)s %(message)s'
@@ -30,13 +34,10 @@ class GSAMDatasetLabeler:
         gd_model,
         sam_predictor,
         device,
-        compute_iou,
-        load_gt_mask,
-        to_numpy_image,
         box_threshold: float = 0.30,
         text_threshold: float = 0.25,
         iou_threshold: float = 0.75,
-        max_images: Optional[int] = None    # for test purpose
+        max_images: Optional[int] = None    # for testing purposes
     ) -> None:
         """
         Initializes GSAMDatasetLabeler class. GSAM is used to label custom dataset.
@@ -49,9 +50,6 @@ class GSAMDatasetLabeler:
             gd_model: Grounding DINO model instance.
             sam_predictor: SAM predictor instance.
             device (torch.device): Device on which to run models.
-            compute_iou (Callable): Function to compute IoU between masks.
-            load_gt_mask (Callable): Function to load ground truth mask of a specified image.
-            to_numpy_image (Callable): Function to convert images from tensors to numpy arrays.
             box_threshold (float, optional): Confidence threshold for bounding boxes. Default 0.30.
             text_threshold (float, optional): Confidence threshold for text predictions. Default 0.25.
             iou_threshold (float, optional): IoU threshold for keeping masks. Default 0.75.
@@ -70,11 +68,6 @@ class GSAMDatasetLabeler:
         self.text_threshold = text_threshold
         self.iou_threshold = iou_threshold
         self.max_images = max_images
-
-        # Callables
-        self.compute_iou = compute_iou
-        self.load_gt_mask = load_gt_mask
-        self.to_numpy_image = to_numpy_image
         
         # Directories
         self.kept_dir = out_root / "kept"
@@ -128,7 +121,7 @@ class GSAMDatasetLabeler:
             )
             
             # 3. Load ground truth mask and convert it in binary
-            gt_path = self.load_gt_mask(self.root, image_name)
+            gt_path = load_gt_mask(self.root, image_name)
             if gt_path is None:
                 logger.warning(f"Ground truth mask not found for '{image_name}'")
                 return False
@@ -161,7 +154,7 @@ class GSAMDatasetLabeler:
             
             for i, mask_tensor in enumerate(masks):
                 mask_np = mask_tensor[0].detach().cpu().numpy()
-                iou = self.compute_iou(mask_np, gt_mask_bin)
+                iou = compute_iou(mask_np, gt_mask_bin)
                 
                 masks_info.append({
                     "index": i,
@@ -182,7 +175,7 @@ class GSAMDatasetLabeler:
             os.makedirs(out_image_dir, exist_ok = True)
             
             # 7a. save original image and corresponding ground truth for reference
-            Image.fromarray(self.to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
+            Image.fromarray(to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
             Image.fromarray((gt_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
             
             for info in masks_info:
@@ -221,10 +214,6 @@ class GSAMDatasetLabeler:
         """
         Run the GSAM dataset labeling.
         """
-        logger.info("=" * 80)
-        logger.info("Starting GSAM Dataset Labeling Process...")
-        logger.info("=" * 80)
-        
         # Setup output directories
         self.create_directories()
         
@@ -233,21 +222,69 @@ class GSAMDatasetLabeler:
         total_images = len(img_props) if self.max_images is None else min(len(img_props), self.max_images)
         logger.info(f"Processing {total_images} images from {len(img_props)} total.")
         
-        # Open CSV file for labels
-        lbl_file = open(self.lbl_path, mode = 'w', newline = '')
-        lbl_writer = csv.DictWriter(lbl_file, fieldnames=[
-            "image_name", "mask_filename", "is_odd", "is_kept", 
-            "iou", "confidence", "category"
-        ])
-        lbl_writer.writeheader()
-        
         # Process images
-        try:
-            for index, row in img_props.iterrows():
-                # for processing a certain number of images, not all 
-                if self.max_images is not None and index >= self.max_images:
+        with open(self.lbl_path, mode = 'w', newline = '') as lbl_file:
+            lbl_writer = csv.DictWriter(lbl_file, fieldnames=[
+                "image_name", "mask_filename", "is_odd", "is_kept", 
+                "iou", "confidence", "category"
+            ])
+            lbl_writer.writeheader()
+        
+            for index, row in img_props.iterrows(): 
+                if self.max_images is not None and index >= self.max_images:    # not all
                     break
-                else:   # all images
-                    self.process_single_image(row, lbl_writer)    
-        finally:
-            lbl_file.close()
+                
+                self.process_single_image(row, lbl_writer)    
+
+def main(args):
+
+    logger.info('========== GSAM LABELING ==========')
+    
+    # Initialize and run labeler
+    labeler = GSAMDatasetLabeler(
+        root=args.root_dir,
+        img_dir=args.img_dir,
+        csv_path=args.csv_path,
+        out_root=args.out_dir,
+        gd_model=args.gd_model,  
+        sam_predictor=args.sam_predictor, 
+        device=args.device,
+        box_threshold=args.box_threshold,
+        text_threshold=args.text_threshold,
+        iou_threshold=args.iou_threshold,
+        max_images=args.max_images
+    )
+    
+    labeler.run()
+    
+    logger.info('========== GSAM LABELING FINISHED ==========')
+    logger.info(f"Results of labeling saved in {args.out_dir}")
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser()
+
+    parser.add_argument('--root-dir', type=Path, default='/content/O3_data')
+    parser.add_argument('--out-dir', type=Path, default='/content/O3_output')
+    parser.add_argument('--img-dir', type=Path, default=None)
+    parser.add_argument('--csv-path', type=Path, default=None)
+    parser.add_argument('--gd-model', required=True)
+    parser.add_argument('--sam-predictor', required=True)
+    parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--box-threshold', type=float, default=0.30)
+    parser.add_argument('--text-threshold', type=float, default=0.25)
+    parser.add_argument('--iou-threshold', type=float, default=0.75)
+    parser.add_argument('--max-images', type=int, default=None, 
+                        help='Maximum number of images to process (for testing purposes)')
+    
+    args = parser.parse_args()
+
+    args.device = torch.device(args.device)
+
+    if args.img_dir is None:
+        args.img_dir = args.root_dir / 'images'
+
+    if args.csv_path is None:
+        args.csv_path = args.root_dir / 'image_properties.csv'
+
+    main(args)
