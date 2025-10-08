@@ -203,9 +203,9 @@ class GSAMDatasetLabeler:
             
             # 8. Log result
             if is_kept:
-                logger.info(f"KEPT - best IoU = {best['iou']:.3f} (mask {best['index']} marked as ODD)")
+                logger.info(f" KEPT - best IoU = {best['iou']:.3f} (mask {best['index']} marked as ODD)")
             else:
-                logger.info(f"DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
+                logger.info(f" DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
             
             return True
             
