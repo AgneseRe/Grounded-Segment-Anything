@@ -31,7 +31,7 @@ class GSAMDatasetLabeler:
         img_dir,
         gt_dir,
         csv_path,
-        out_root,
+        out_dir,
         gd_model,
         sam_predictor,
         device,
@@ -48,7 +48,7 @@ class GSAMDatasetLabeler:
             img_dir (Path): Directory containing dataset original images.
             gt_dir (Path): Directory containing dataset ground truth masks.
             csv_path (Path): CSV file path containing dataset metadata.
-            out_root (Path): Output directory for storing results.
+            out_dir (Path): Output directory for storing results.
             gd_model: Grounding DINO model instance.
             sam_predictor: SAM predictor instance.
             device (torch.device): Device on which to run models.
@@ -61,7 +61,7 @@ class GSAMDatasetLabeler:
         self.img_dir = img_dir
         self.gt_dir = gt_dir
         self.csv_path = csv_path
-        self.out_root = out_root
+        self.out_dir = out_dir
         self.gd_model = gd_model
         self.sam_predictor = sam_predictor
         self.device = device
@@ -73,15 +73,15 @@ class GSAMDatasetLabeler:
         self.max_images = max_images
         
         # Directories
-        self.kept_dir = out_root / "kept"
-        self.discarded_dir = out_root / "discarded"
-        self.lbl_path = out_root / "labels.csv"
+        self.kept_dir = out_dir / "kept"
+        self.discarded_dir = out_dir / "discarded"
+        self.lbl_path = out_dir / "labels.csv"
         
     def create_directories(self):
         """
         Create necessary output directories.
         """
-        os.makedirs(self.out_root, exist_ok = True)
+        os.makedirs(self.out_dir, exist_ok = True)
         os.makedirs(self.kept_dir, exist_ok = True)
         os.makedirs(self.discarded_dir, exist_ok = True)
     
@@ -124,7 +124,7 @@ class GSAMDatasetLabeler:
             )
             
             # 3. Load ground truth mask and convert it in binary
-            gt_path = load_gt_mask(self.gtdir, image_name)
+            gt_path = load_gt_mask(self.gt_dir, image_name)
             if gt_path is None:
                 logger.warning(f"Ground truth mask not found for '{image_name}'")
                 return False
@@ -193,7 +193,7 @@ class GSAMDatasetLabeler:
                 # 7c. write CSV file
                 lbl_writer.writerow({
                     "image_name": image_name,
-                    "mask_filename": str(mask_path.relative_to(self.out_root)),
+                    "mask_filename": str(mask_path.relative_to(self.out_dir)),
                     "is_odd": int(is_odd),
                     "is_kept": int(is_kept),
                     "iou": f"{info['iou']:.3f}",
@@ -249,7 +249,7 @@ def main(args):
         img_dir=args.img_dir,
         gt_dir=args.gt_dir,
         csv_path=args.csv_path,
-        out_root=args.out_dir,
+        out_dir=args.out_dir,
         gd_model=args.gd_model,  
         sam_predictor=args.sam_predictor, 
         device=args.device,
