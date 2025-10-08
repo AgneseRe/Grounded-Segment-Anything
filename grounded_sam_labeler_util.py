@@ -3,7 +3,7 @@ import numpy as np
 
 from pathlib import Path
 
-def load_gt_mask(gtdir: Path, image_name: str):
+def load_gt_mask(gt_dir: Path, image_name: str):
     """
     Find the corresponding ground truth mask based on the image name.
 
@@ -15,7 +15,7 @@ def load_gt_mask(gtdir: Path, image_name: str):
         The path to the corresponding ground truth mask if found. Otherwise None.
     """
     base_name = Path(image_name).stem  # without extension
-    expected_gt_path = gtdir / (base_name + ".jpg")
+    expected_gt_path = gt_dir / (base_name + ".jpg")
     if expected_gt_path.exists():
         return expected_gt_path
     else:

@@ -29,6 +29,7 @@ class GSAMDatasetLabeler:
         self,
         root,
         img_dir,
+        gt_dir,
         csv_path,
         out_root,
         gd_model,
@@ -45,6 +46,7 @@ class GSAMDatasetLabeler:
         Args:
             root (Path): Root directory for images and ground truth masks.
             img_dir (Path): Directory containing dataset original images.
+            gt_dir (Path): Directory containing dataset ground truth masks.
             csv_path (Path): CSV file path containing dataset metadata.
             out_root (Path): Output directory for storing results.
             gd_model: Grounding DINO model instance.
@@ -57,6 +59,7 @@ class GSAMDatasetLabeler:
         """
         self.root = root
         self.img_dir = img_dir
+        self.gt_dir = gt_dir
         self.csv_path = csv_path
         self.out_root = out_root
         self.gd_model = gd_model
@@ -121,7 +124,7 @@ class GSAMDatasetLabeler:
             )
             
             # 3. Load ground truth mask and convert it in binary
-            gt_path = load_gt_mask(self.root, image_name)
+            gt_path = load_gt_mask(self.gtdir, image_name)
             if gt_path is None:
                 logger.warning(f"Ground truth mask not found for '{image_name}'")
                 return False
@@ -244,6 +247,7 @@ def main(args):
     labeler = GSAMDatasetLabeler(
         root=args.root_dir,
         img_dir=args.img_dir,
+        gt_dir=args.gt_dir,
         csv_path=args.csv_path,
         out_root=args.out_dir,
         gd_model=args.gd_model,  
@@ -267,6 +271,7 @@ if __name__ == '__main__':
     parser.add_argument('--root-dir', type=Path, default='/content/O3_data')
     parser.add_argument('--out-dir', type=Path, default='/content/O3_output')
     parser.add_argument('--img-dir', type=Path, default=None)
+    parser.add_argument('--gt-dir', type=Path, default=None)
     parser.add_argument('--csv-path', type=Path, default=None)
     parser.add_argument('--gd-model', required=True)
     parser.add_argument('--sam-predictor', required=True)
@@ -283,6 +288,9 @@ if __name__ == '__main__':
 
     if args.img_dir is None:
         args.img_dir = args.root_dir / 'images'
+
+    if args.gt_dir is None:
+        args.gt_dir = args.root_dir / 'targ_labels'
 
     if args.csv_path is None:
         args.csv_path = args.root_dir / 'image_properties.csv'
