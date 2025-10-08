@@ -265,6 +265,10 @@ def main(args):
     logger.info(f"Results of labeling saved in {args.out_dir}")
 
 
+# For future uses with CLI
+# TODO: gd_model and sam_predictor arguments must be pass as path or str.
+# The script must implement a function (e.g. load_model) to load actual
+# model instances of GroundingDINO and SAM, using the provided paths.
 if __name__ == '__main__':
     parser = ArgumentParser()
 
@@ -273,7 +277,7 @@ if __name__ == '__main__':
     parser.add_argument('--img-dir', type=Path, default=None)
     parser.add_argument('--gt-dir', type=Path, default=None)
     parser.add_argument('--csv-path', type=Path, default=None)
-    parser.add_argument('--gd-model', required=True)
+    parser.add_argument('--gd-model', required=True)    # pass as path or str
     parser.add_argument('--sam-predictor', required=True)
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--box-threshold', type=float, default=0.30)
