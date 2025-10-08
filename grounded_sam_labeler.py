@@ -217,6 +217,8 @@ class GSAMDatasetLabeler:
         """
         Run the GSAM dataset labeling.
         """
+        logger.info('\n========== GSAM LABELING ==========')
+
         # Setup output directories
         self.create_directories()
         
@@ -237,11 +239,14 @@ class GSAMDatasetLabeler:
                 if self.max_images is not None and index >= self.max_images:    # not all
                     break
                 
-                self.process_single_image(row, lbl_writer)    
+                self.process_single_image(row, lbl_writer) 
+
+        logger.info('========== GSAM LABELING FINISHED ==========')
+        logger.info(f"Results of labeling saved in {self.out_dir}")   
 
 def main(args):
 
-    logger.info('========== GSAM LABELING ==========')
+    logger.info('\n========== GSAM LABELING ==========')
     
     # Initialize and run labeler
     labeler = GSAMDatasetLabeler(
