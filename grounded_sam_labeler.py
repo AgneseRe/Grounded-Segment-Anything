@@ -266,7 +266,7 @@ def main(args):
     
     labeler.run()
     
-    logger.info('========== GSAM LABELING FINISHED ==========')
+    logger.info('\n========== GSAM LABELING FINISHED ==========')
     logger.info(f"Results of labeling saved in {args.out_dir}")
 
 
