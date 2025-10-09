@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Optional
 from argparse import ArgumentParser
 
+from tqdm.auto import tqdm
+
 # Grounding DINO
 from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import annotate, load_image, predict
@@ -235,10 +237,8 @@ class GSAMDatasetLabeler:
             ])
             lbl_writer.writeheader()
         
-            for index, row in img_props.iterrows(): 
-                if self.max_images is not None and index >= self.max_images:    # not all
-                    break
-                
+            for index, row in tqdm(img_props.iloc[:total_images].iterrows(), 
+                total=total_images, desc="GSAM Labeling Progress"):
                 self.process_single_image(row, lbl_writer) 
 
         logger.info('========== GSAM LABELING FINISHED ==========')
