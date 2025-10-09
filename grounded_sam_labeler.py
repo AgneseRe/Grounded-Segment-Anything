@@ -241,7 +241,7 @@ class GSAMDatasetLabeler:
                 total=total_images, desc="GSAM Labeling Progress"):
                 self.process_single_image(row, lbl_writer) 
 
-        logger.info('========== GSAM LABELING FINISHED ==========')
+        logger.info('\n========== GSAM LABELING FINISHED ==========')
         logger.info(f"Results of labeling saved in {self.out_dir}")   
 
 def main(args):
