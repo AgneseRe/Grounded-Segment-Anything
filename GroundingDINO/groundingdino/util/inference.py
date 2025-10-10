@@ -1,4 +1,4 @@
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 
 import re
 import cv2
@@ -6,6 +6,7 @@ import numpy as np
 import supervision as sv
 import torch
 from PIL import Image
+from torchvision.ops.boxes import nms
 from torchvision.ops import box_convert
 
 import groundingdino.datasets.transforms as T
@@ -61,12 +62,42 @@ def load_image(image_path: str) -> Tuple[np.array, torch.Tensor]:
     return image, image_transformed
 
 
+def apply_nms(boxes, logits, phrases, nms_threshold):
+    """
+    Applies Non-Maximum Suppression (NMS) to filter overlapping bounding boxes.
+    Otherwise, GroundingDINO generates similar bounding boxes and SAM produce
+    nearly identical segmentation masks. NMS removes these redundant detections.
+
+    Args:
+        boxes (torch.Tensor): Tensor of bounding boxes in (cx, cy, w, h) format.
+        logits (torch.Tensor): Tensor of confidence scores for each bounding box.
+        phrases (List[str]): List of phrases associated with each bounding box.
+        nms_threshold (float): IoU threshold for NMS.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, List[str]]: Filtered bounding boxes, 
+        confidence scores, and phrases.
+    """
+
+    # boxes expected to be in (x1, y1, x2, y2) format
+    boxes_xyxy = box_convert(boxes, in_fmt = 'cxcywh', out_fmt = 'xyxy') 
+
+    kept_indices = nms(boxes_xyxy, logits, nms_threshold)
+
+    kept_boxes = boxes[kept_indices]
+    kept_logits = logits[kept_indices]
+    kept_phrases = [phrases[i] for i in kept_indices.tolist()]
+
+    return kept_boxes, kept_logits, kept_phrases
+
+
 def predict(
         model,
         image: torch.Tensor,
         caption: str,
         box_threshold: float,
         text_threshold: float,
+        nms_threshold: Optional[float] = None,
         device: str = "cuda"
 ) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
     caption = preprocess_caption(caption=caption)
@@ -93,7 +124,13 @@ def predict(
         in logits
     ]
 
-    return boxes, logits.max(dim=1)[0], phrases
+    # Apply Non-Maximum Suppression NMS
+    if nms_threshold is not None:
+        boxes, logits_max, phrases = apply_nms(boxes, logits.max(dim=1)[0], phrases, nms_threshold)
+    else:
+        logits_max = logits.max(dim=1)[0]
+
+    return boxes, logits_max, phrases
 
 
 def annotate(image_source: np.ndarray, boxes: torch.Tensor, logits: torch.Tensor, phrases: List[str]) -> np.ndarray:
