@@ -72,7 +72,7 @@ def apply_nms(boxes, logits, phrases, nms_threshold):
         boxes (torch.Tensor): Tensor of bounding boxes in (cx, cy, w, h) format.
         logits (torch.Tensor): Tensor of confidence scores for each bounding box.
         phrases (List[str]): List of phrases associated with each bounding box.
-        nms_threshold (float): IoU threshold for NMS.
+        nms_threshold (float,optional): IoU threshold for NMS.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor, List[str]]: Filtered bounding boxes, 

@@ -40,6 +40,7 @@ class GSAMDatasetLabeler:
         box_threshold: float = 0.30,
         text_threshold: float = 0.25,
         iou_threshold: float = 0.75,
+        nms_threshold: Optional[float] = None,
         max_images: Optional[int] = None    # for testing purposes
     ) -> None:
         """
@@ -57,6 +58,7 @@ class GSAMDatasetLabeler:
             box_threshold (float, optional): Confidence threshold for bounding boxes. Default 0.30.
             text_threshold (float, optional): Confidence threshold for text predictions. Default 0.25.
             iou_threshold (float, optional): IoU threshold for keeping masks. Default 0.75.
+            nms_threshold (float, optional): IoU threshold for NMS. Default None.
             max_images (Optional[int], optional): Maximum number of images to process. Default None.
         """
         self.root = root
@@ -72,6 +74,7 @@ class GSAMDatasetLabeler:
         self.box_threshold = box_threshold
         self.text_threshold = text_threshold
         self.iou_threshold = iou_threshold
+        self.nms_threshold = nms_threshold
         self.max_images = max_images
         
         # Directories
@@ -122,7 +125,8 @@ class GSAMDatasetLabeler:
                 image = image_transformed,
                 caption = class_name,
                 box_threshold = self.box_threshold,
-                text_threshold = self.text_threshold
+                text_threshold = self.text_threshold,
+                nms_threshold=self.nms_threshold
             )
             
             # 3. Load ground truth mask and convert it in binary
