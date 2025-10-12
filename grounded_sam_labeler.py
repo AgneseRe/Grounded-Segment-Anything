@@ -63,6 +63,8 @@ class GSAMDatasetLabeler:
             ada_box_threshold (bool): If True, box_threshold depends on number of distractors in image. 
                 If False, same box_threshold for all processed images. Default False.
             max_images (int, optional): Maximum number of images to process. Default None.
+
+            NMS, adaptive threshold, non-overlapping masks for better results.
         """
         self.root = root
         self.img_dir = img_dir
@@ -97,6 +99,45 @@ class GSAMDatasetLabeler:
         os.makedirs(self.out_dir, exist_ok = True)
         os.makedirs(self.kept_dir, exist_ok = True)
         os.makedirs(self.discarded_dir, exist_ok = True)
+
+    def filter_overlapping_masks(masks_info, overlap_threshold = 0.5):
+        """
+        Filters overlapping masks maintaining the one with highest IoU.
+
+        Args:
+            masks_info (list): List of dictionaries containing mask information.
+            overlap_threshold (float): Threshold for determining overlap between masks. Default 0.5.
+
+        Returns:
+            list: Filtered list of masks with reduced overlap.
+        """
+        if len(masks_info) <= 1:
+            return masks_info
+        
+        # Sort masks in IoU descending order
+        sorted_masks = sorted(masks_info, key=lambda x: x["iou"], reverse=True)
+        filtered_masks = []
+        
+        for mask_info in sorted_masks:
+            should_keep = True
+            current_mask = mask_info["mask"]
+            
+            for kept_mask_info in filtered_masks:
+                kept_mask = kept_mask_info["mask"]
+                
+                # Calculate overlap between masks
+                intersection = np.logical_and(current_mask, kept_mask).sum()
+                union = np.logical_or(current_mask, kept_mask).sum()
+                overlap = intersection / union if union > 0 else 0
+                
+                if overlap > overlap_threshold:
+                    should_keep = False
+                    break
+            
+            if should_keep:
+                filtered_masks.append(mask_info)
+        
+        return filtered_masks
     
     def process_single_image(self, row: pd.Series, lbl_kept_writer: csv.DictWriter, lbl_discarded_writer: csv.DictWriter) -> bool:
         """
