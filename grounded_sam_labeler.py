@@ -84,7 +84,8 @@ class GSAMDatasetLabeler:
         # Directories
         self.kept_dir = out_dir / "kept"
         self.discarded_dir = out_dir / "discarded"
-        self.lbl_path = out_dir / "labels.csv"
+        self.lbl_kept_path = out_dir / "kept.csv"
+        self.lbl_discarded_path = out_dir / "discarded.csv"
 
         # Statistics
         self.kept_count = 0
@@ -97,7 +98,7 @@ class GSAMDatasetLabeler:
         os.makedirs(self.kept_dir, exist_ok = True)
         os.makedirs(self.discarded_dir, exist_ok = True)
     
-    def process_single_image(self, row: pd.Series, lbl_writer: csv.DictWriter) -> bool:
+    def process_single_image(self, row: pd.Series, lbl_kept_writer: csv.DictWriter, lbl_discarded_writer: csv.DictWriter) -> bool:
         """
         Processes one single image using GSAM. Grounding DINO is used to predict bounding boxes, 
         SAM to generate masks. Generated masks are then compared against the ground truth. If a 
@@ -106,7 +107,8 @@ class GSAMDatasetLabeler:
 
         Args:
             row (pd.Series): Row from CSV file containing image information.
-            lbl_writer (csv.DictWriter): CSV writer for saving label information.
+            lbl_kept_writer (csv.DictWriter): CSV writer for saving kept samples information.
+            lbl_discarded_writer (csv.DictWriter): CSV writer for saving discarded samples information.
 
         Returns:
             bool: True if the image was successfully processed. Otherwise False.
@@ -194,6 +196,7 @@ class GSAMDatasetLabeler:
             
             # 7. Save results
             is_kept = best["iou"] >= self.iou_threshold
+            lbl_writer = lbl_kept_writer if is_kept else lbl_discarded_writer
             target_dir = self.kept_dir if is_kept else self.discarded_dir
             out_image_dir = target_dir / base_name
             os.makedirs(out_image_dir, exist_ok = True)
@@ -211,17 +214,16 @@ class GSAMDatasetLabeler:
                 mask_path = out_image_dir / mask_filename
                 Image.fromarray((info["mask"] * 255).astype(np.uint8)).save(mask_path)
                 
-                # 7c. write CSV file
+                # 7c. write to appropriate CSV file
                 lbl_writer.writerow({
                     "image_name": image_name,
                     "mask_filename": str(mask_path.relative_to(self.out_dir)),
                     "is_odd": int(is_odd),
-                    "is_kept": int(is_kept),
                     "iou": f"{info['iou']:.3f}",
                     "confidence": f"{info['logit']:.3f}",
                     "target_type": info["phrase"],
                     "num_distractors": num_distractors
-                })
+                    })
             
             # 8. Log result
             if is_kept:
@@ -251,20 +253,27 @@ class GSAMDatasetLabeler:
         logger.info(f"Processing {total_images} images from {len(img_props)} total.")
         
         # Process images
-        with open(self.lbl_path, mode = 'w', newline = '') as lbl_file:
-            lbl_writer = csv.DictWriter(lbl_file, fieldnames=[
-                "image_name", "mask_filename", "is_odd", "is_kept", 
-                "iou", "confidence", "target_type", "num_distractors"
+        with open(self.lbl_kept_path, mode = 'w', newline = '') as lbl_kept_file, \
+            open(self.lbl_discarded_path, mode = 'w', newline = '') as lbl_discarded_file:
+
+            lbl_kept_writer = csv.DictWriter(lbl_kept_file, fieldnames=[
+                "image_name", "mask_filename", "is_odd", "iou", 
+                "confidence", "target_type", "num_distractors"
             ])
-            lbl_writer.writeheader()
+            lbl_discarded_writer = csv.DictWriter(lbl_discarded_file, fieldnames=[
+                "image_name", "mask_filename", "is_odd", "iou", 
+                "confidence", "target_type", "num_distractors"
+            ])
+            lbl_kept_writer.writeheader()
+            lbl_discarded_writer.writeheader()
         
             for index, row in tqdm(img_props.iloc[:total_images].iterrows(), 
                 total=total_images, desc="GSAM Labeling Progress"):
-                self.process_single_image(row, lbl_writer) 
+                self.process_single_image(row, lbl_kept_writer, lbl_discarded_writer) 
 
         logger.info('\n========== GSAM LABELING FINISHED ==========')
         logger.info(f"Results of labeling saved in {self.out_dir}")  
-        logger.info(f"{self.kept_count} kept images from {len(img_props)} total.") 
+        logger.info(f"Kept {self.kept_count} images out of {total_images}: {(self.kept_count/total_images * 100):.2f} %.") 
 
 def main(args):
 
