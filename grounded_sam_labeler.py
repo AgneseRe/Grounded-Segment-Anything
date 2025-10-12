@@ -41,6 +41,7 @@ class GSAMDatasetLabeler:
         text_threshold: float = 0.25,
         iou_threshold: float = 0.75,
         nms_threshold: Optional[float] = None,
+        ada_box_threshold: bool = False,   
         max_images: Optional[int] = None    # for testing purposes
     ) -> None:
         """
@@ -59,7 +60,9 @@ class GSAMDatasetLabeler:
             text_threshold (float, optional): Confidence threshold for text predictions. Default 0.25.
             iou_threshold (float, optional): IoU threshold for keeping masks. Default 0.75.
             nms_threshold (float, optional): IoU threshold for NMS. Default None.
-            max_images (Optional[int], optional): Maximum number of images to process. Default None.
+            ada_box_threshold (bool): If True, box_threshold depends on number of distractors in image. 
+                If False, same box_threshold for all processed images. Default False.
+            max_images (int, optional): Maximum number of images to process. Default None.
         """
         self.root = root
         self.img_dir = img_dir
@@ -75,6 +78,7 @@ class GSAMDatasetLabeler:
         self.text_threshold = text_threshold
         self.iou_threshold = iou_threshold
         self.nms_threshold = nms_threshold
+        self.ada_box_threshold = ada_box_threshold
         self.max_images = max_images
         
         # Directories
@@ -110,6 +114,13 @@ class GSAMDatasetLabeler:
         image_name = row['image_name']
         class_name = row['target_type']
         num_distractors = row['num_distractors']
+
+        # Check if adaptive box threshold mode
+        if self.ada_box_threshold: 
+            if num_distractors >= 30:
+                self.box_threshold = 0.25
+            else:
+                self.box_threshold = 0.30
         
         logger.info(f"\nProcessing '{image_name}' (class '{class_name}')")
         
@@ -272,6 +283,7 @@ def main(args):
         box_threshold=args.box_threshold,
         text_threshold=args.text_threshold,
         iou_threshold=args.iou_threshold,
+        ada_box_threshold=args.ada_box_threshold,
         max_images=args.max_images
     )
     
@@ -299,6 +311,7 @@ if __name__ == '__main__':
     parser.add_argument('--box-threshold', type=float, default=0.30)
     parser.add_argument('--text-threshold', type=float, default=0.25)
     parser.add_argument('--iou-threshold', type=float, default=0.75)
+    parser.add_argument('--ada-box-threshold', type=bool, default=False)
     parser.add_argument('--max-images', type=int, default=None, 
                         help='Maximum number of images to process (for testing purposes)')
     
