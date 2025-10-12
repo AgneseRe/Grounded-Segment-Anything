@@ -81,6 +81,9 @@ class GSAMDatasetLabeler:
         self.kept_dir = out_dir / "kept"
         self.discarded_dir = out_dir / "discarded"
         self.lbl_path = out_dir / "labels.csv"
+
+        # Statistics
+        self.kept_count = 0
         
     def create_directories(self):
         """
@@ -209,6 +212,7 @@ class GSAMDatasetLabeler:
             
             # 8. Log result
             if is_kept:
+                self.kept_count += 1
                 logger.info(f" KEPT - best IoU = {best['iou']:.3f}")
             else:
                 logger.info(f" DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
@@ -246,7 +250,8 @@ class GSAMDatasetLabeler:
                 self.process_single_image(row, lbl_writer) 
 
         logger.info('\n========== GSAM LABELING FINISHED ==========')
-        logger.info(f"Results of labeling saved in {self.out_dir}")   
+        logger.info(f"Results of labeling saved in {self.out_dir}")  
+        logger.info(f"{self.kept_count} kept images from {len(img_props)} total.") 
 
 def main(args):
 
