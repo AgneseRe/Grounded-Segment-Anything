@@ -109,6 +109,7 @@ class GSAMDatasetLabeler:
         """
         image_name = row['image_name']
         class_name = row['target_type']
+        num_distractors = row['num_distractors']
         
         logger.info(f"\nProcessing '{image_name}' (class '{class_name}')")
         
@@ -207,7 +208,8 @@ class GSAMDatasetLabeler:
                     "is_kept": int(is_kept),
                     "iou": f"{info['iou']:.3f}",
                     "confidence": f"{info['logit']:.3f}",
-                    "category": info["phrase"]
+                    "target_type": info["phrase"],
+                    "num_distractors": num_distractors
                 })
             
             # 8. Log result
@@ -241,7 +243,7 @@ class GSAMDatasetLabeler:
         with open(self.lbl_path, mode = 'w', newline = '') as lbl_file:
             lbl_writer = csv.DictWriter(lbl_file, fieldnames=[
                 "image_name", "mask_filename", "is_odd", "is_kept", 
-                "iou", "confidence", "category"
+                "iou", "confidence", "target_type", "num_distractors"
             ])
             lbl_writer.writeheader()
         
