@@ -123,7 +123,7 @@ def predict(
         in logits
     ]
 
-    # Apply Non-Maximum Suppression NMS (NOT USED. ONLY FOR PREVIOUS IMPLEMENTATIONS)
+    # Apply Non-Maximum Suppression NMS (ONLY FOR SINGLE ANNOTATION)
     if nms_threshold is not None:
         boxes, logits_max, phrases = apply_nms(boxes, logits.max(dim=1)[0], phrases, nms_threshold)
     else:
