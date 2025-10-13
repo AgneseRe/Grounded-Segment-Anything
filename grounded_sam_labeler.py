@@ -161,15 +161,15 @@ class GSAMDatasetLabeler:
         """
         Get NMS threshold using the selected strategy. The strategy can be num_distractors, logits variance or boxes overlapping.
         """
-        if not self.ada_nms_threshold or self.nms_threshold is not None:
+        if not self.ada_nms_threshold or self.nms_threshold is not None:    # if NMS manually set
             return self.nms_threshold
         
         if self.nms_strategy == "num_distractors":
-            return self.compute_nms_threshold_from_distractors(num_distractors)
+            return self.compute_nms_threshold_distractors(num_distractors)
         elif self.nms_strategy == "logits_variance":
-            return self.compute_nms_threshold_from_logits(logits)
+            return self.compute_nms_threshold_logits(logits)
         elif self.nms_strategy == "boxes_overlap":
-            return self.compute_nms_threshold_from_boxes(boxes, height, width)
+            return self.compute_nms_threshold_boxes(boxes, height, width)
         else:
             logger.warning(f"Error: unknown NMS strategy '{self.nms_strategy}'. Using default.")
             return 0.50
