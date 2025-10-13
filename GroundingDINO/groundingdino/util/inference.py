@@ -90,7 +90,6 @@ def apply_nms(boxes, logits, phrases, nms_threshold):
 
     return kept_boxes, kept_logits, kept_phrases
 
-
 def predict(
         model,
         image: torch.Tensor,
@@ -124,7 +123,7 @@ def predict(
         in logits
     ]
 
-    # Apply Non-Maximum Suppression NMS
+    # Apply Non-Maximum Suppression NMS (NOT USED. ONLY FOR PREVIOUS IMPLEMENTATIONS)
     if nms_threshold is not None:
         boxes, logits_max, phrases = apply_nms(boxes, logits.max(dim=1)[0], phrases, nms_threshold)
     else:

@@ -15,7 +15,7 @@ from tqdm.auto import tqdm
 
 # Grounding DINO
 from GroundingDINO.groundingdino.util import box_ops
-from GroundingDINO.groundingdino.util.inference import annotate, load_image, predict
+from GroundingDINO.groundingdino.util.inference import annotate, apply_nms, load_image, predict
 
 # GSAM utilities
 from grounded_sam_labeler_util import compute_iou, load_gt_mask, to_numpy_image
@@ -41,7 +41,9 @@ class GSAMDatasetLabeler:
         text_threshold: float = 0.25,
         iou_threshold: float = 0.75,
         nms_threshold: Optional[float] = None,
-        ada_box_threshold: bool = False,   
+        ada_box_threshold: bool = False,  
+        ada_nms_threshold: bool = True, 
+        nms_strategy: str = "num_distractors",
         max_images: Optional[int] = None    # for testing purposes
     ) -> None:
         """
@@ -62,6 +64,8 @@ class GSAMDatasetLabeler:
             nms_threshold (float, optional): IoU threshold for NMS. Default None.
             ada_box_threshold (bool): If True, box_threshold depends on number of distractors in image. 
                 If False, same box_threshold for all processed images. Default False.
+            ada_nms_threshold (bool): If True, nms_threshold depends on nms_strategy. Default True.
+            nms_strategy (str): It can be num_distractors, logit_variance or box_overlap. Default num_distractors.
             max_images (int, optional): Maximum number of images to process. Default None.
 
             NMS, adaptive threshold, non-overlapping masks for better results.
@@ -75,12 +79,14 @@ class GSAMDatasetLabeler:
         self.sam_predictor = sam_predictor
         self.device = device
         
-        # Thresholds
+        # Thresholds (box and nms can be adapted)
         self.box_threshold = box_threshold
         self.text_threshold = text_threshold
         self.iou_threshold = iou_threshold
         self.nms_threshold = nms_threshold
         self.ada_box_threshold = ada_box_threshold
+        self.ada_nms_threshold = ada_nms_threshold
+        self.nms_strategy = nms_strategy
         self.max_images = max_images
         
         # Directories
@@ -100,45 +106,75 @@ class GSAMDatasetLabeler:
         os.makedirs(self.kept_dir, exist_ok = True)
         os.makedirs(self.discarded_dir, exist_ok = True)
 
-    def filter_overlapping_masks(masks_info, overlap_threshold = 0.5):
+    # Adaptive Non-Maximum Suppression threshold [0.30, 0.70]
+    def compute_nms_threshold_distractors(self, num_distractors: int) -> float:
         """
-        Filters overlapping masks maintaining the one with highest IoU.
+        Compute appropriate NMS threshold, based on the number of distractors. If the image 
+        is not very crowded, it is unlikely that there are duplicate boxes. NMS threshold 
+        not aggressive. More aggressive if crowded image with an high number of distractors.
 
         Args:
-            masks_info (list): List of dictionaries containing mask information.
-            overlap_threshold (float): Threshold for determining overlap between masks. Default 0.5.
+            num_distractors (int): Number of distractors in the image.
 
         Returns:
-            list: Filtered list of masks with reduced overlap.
+            float: NMS threshold.
         """
-        if len(masks_info) <= 1:
-            return masks_info
+        if num_distractors < 10:
+            return 0.70
+        elif num_distractors < 30:
+            return 0.50
+        else:
+            return 0.30
         
-        # Sort masks in IoU descending order
-        sorted_masks = sorted(masks_info, key=lambda x: x["iou"], reverse=True)
-        filtered_masks = []
-        
-        for mask_info in sorted_masks:
-            should_keep = True
-            current_mask = mask_info["mask"]
-            
-            for kept_mask_info in filtered_masks:
-                kept_mask = kept_mask_info["mask"]
-                
-                # Calculate overlap between masks
-                intersection = np.logical_and(current_mask, kept_mask).sum()
-                union = np.logical_or(current_mask, kept_mask).sum()
-                overlap = intersection / union if union > 0 else 0
-                
-                if overlap > overlap_threshold:
-                    should_keep = False
-                    break
-            
-            if should_keep:
-                filtered_masks.append(mask_info)
-        
-        return filtered_masks
+    def compute_nms_threshold_logits(self, logits: torch.Tensor) -> float:
+        """
+        Compute appropriate NMS threshold based on the variance of logits. If high variance, 
+        it is unlikely that there are duplicate boxes, so a higher NMS threshold is used.
+
+        Args:
+            logits (torch.Tensor): Logits tensor from the model.
+
+        Returns:
+            float: NMS threshold.
+        """
+        logits_np = logits.cpu().numpy()
+        logits_variance = np.var(logits_np)
+
+        logits_norm_variance = min(logits_variance, 1.0)
+        nms_threshold = 0.30 + logits_norm_variance * 0.40  # [0.30, 0.70]
+
+        return nms_threshold
     
+    def compute_nms_threshold_boxes(self, boxes: torch.Tensor, height: int, width: int) -> float:
+
+        boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
+        iou_matrix, _ = box_ops.box_iou(boxes_xyxy, boxes_xyxy)
+
+        mask = ~torch.eye(len(boxes), dtype=torch.bool)
+        avg_overlap = iou_matrix[mask].mean().item()
+
+        nms_threshold = 0.70 - (avg_overlap * 0.40) # [0.30, 0.70]
+
+        return nms_threshold
+
+    def get_adaptive_nms_threshold(self, num_distractors: int, logits: torch.Tensor, boxes: torch.Tensor, height: int, width: int) -> float:
+        """
+        Get NMS threshold using the selected strategy. The strategy can be num_distractors, logits variance or boxes overlapping.
+        """
+        if not self.ada_nms_threshold or self.nms_threshold is not None:
+            return self.nms_threshold
+        
+        if self.nms_strategy == "num_distractors":
+            return self.compute_nms_threshold_from_distractors(num_distractors)
+        elif self.nms_strategy == "logits_variance":
+            return self.compute_nms_threshold_from_logits(logits)
+        elif self.nms_strategy == "boxes_overlap":
+            return self.compute_nms_threshold_from_boxes(boxes, height, width)
+        else:
+            logger.warning(f"Error: unknown NMS strategy '{self.nms_strategy}'. Using default.")
+            return 0.50
+    
+    # Process image
     def process_single_image(self, row: pd.Series, lbl_kept_writer: csv.DictWriter, lbl_discarded_writer: csv.DictWriter) -> bool:
         """
         Processes one single image using GSAM. Grounding DINO is used to predict bounding boxes, 
@@ -184,10 +220,21 @@ class GSAMDatasetLabeler:
                 caption = class_name,
                 box_threshold = self.box_threshold,
                 text_threshold = self.text_threshold,
-                nms_threshold=self.nms_threshold
+                nms_threshold=None  # apply later. We need logits, boxes. Line 231
             )
+
+            # 3. Check detections
+            if boxes is None or len(boxes) == 0:
+                logger.warning(f"No Grounding DINO detections for '{image_name}'")
+                return False
             
-            # 3. Load ground truth mask and convert it in binary
+            # 4. Compute NMS threshold to apply
+            nms_threshold = self.get_adaptive_nms_threshold(num_distractors, logits, boxes, height, width)
+            print(f'NMS strategy: {self.nms_strategy}, NMS threshold: {nms_threshold}.')
+            if nms_threshold is not None:
+                boxes, logits, phrases = apply_nms(boxes, logits, phrases, nms_threshold)
+            
+            # 5. Load ground truth mask and convert it in binary
             gt_path = load_gt_mask(self.gt_dir, image_name)
             if gt_path is None:
                 logger.warning(f"Ground truth mask not found for '{image_name}'")
@@ -198,12 +245,7 @@ class GSAMDatasetLabeler:
             # print(np.unique(gt_mask_np))
             gt_mask_bin = (gt_mask_np > 127).astype(np.uint8)
             
-            # 4. Check detections
-            if boxes is None or len(boxes) == 0:
-                logger.warning(f"No Grounding DINO detections for '{image_name}'")
-                return False
-            
-            # 5. Run segmentation model
+            # 6. Run segmentation model
             self.sam_predictor.set_image(image)
             
             boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
@@ -216,7 +258,7 @@ class GSAMDatasetLabeler:
                 multimask_output = False,
             )
             
-            # 6. Evaluate masks and find the best
+            # 7. Evaluate masks and find the best
             masks_info = []
             
             for i, mask_tensor in enumerate(masks):
@@ -235,27 +277,27 @@ class GSAMDatasetLabeler:
             best = max(masks_info, key = lambda x: x["iou"])
             base_name = Path(image_name).stem   # without extension
             
-            # 7. Save results
+            # 8 Save results
             is_kept = best["iou"] >= self.iou_threshold
             lbl_writer = lbl_kept_writer if is_kept else lbl_discarded_writer
             target_dir = self.kept_dir if is_kept else self.discarded_dir
             out_image_dir = target_dir / base_name
             os.makedirs(out_image_dir, exist_ok = True)
             
-            # 7a. save original image and corresponding ground truth for reference
+            # 8a. save original image and corresponding ground truth for reference
             Image.fromarray(to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
             Image.fromarray((gt_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
             
             for info in masks_info:
                 is_odd = (info["index"] == best["index"]) and is_kept
                 
-                # 7b. save masks odd and normal
+                # 8b. save masks odd and normal
                 mask_suffix = "__ODD" if is_odd else ""
                 mask_filename = f"{base_name}__mask_box{info['index']}{mask_suffix}.png"
                 mask_path = out_image_dir / mask_filename
                 Image.fromarray((info["mask"] * 255).astype(np.uint8)).save(mask_path)
                 
-                # 7c. write to appropriate CSV file
+                # 8c. write to appropriate CSV file
                 lbl_writer.writerow({
                     "image_name": image_name,
                     "mask_filename": str(mask_path.relative_to(self.out_dir)),
@@ -266,7 +308,7 @@ class GSAMDatasetLabeler:
                     "num_distractors": num_distractors
                     })
             
-            # 8. Log result
+            # 9. Log result
             if is_kept:
                 self.kept_count += 1
                 logger.info(f" KEPT - best IoU = {best['iou']:.3f}")
