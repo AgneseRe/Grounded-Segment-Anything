@@ -146,7 +146,18 @@ class GSAMDatasetLabeler:
         return nms_threshold
     
     def compute_nms_threshold_boxes(self, boxes: torch.Tensor, height: int, width: int) -> float:
+        """
+        Compute appropriate NMS threshold based on the overlap of bounding boxes. If there is a high average overlap 
+        between boxes, a lower NMS threshold is used to reduce redundancy. Otherwise, a higher NMS threshold is used.
 
+        Args:
+            boxes (torch.Tensor): Bounding boxes in cxcywh format. They must be converted in xyxy.
+            height (int): Height of the image to process.
+            width (int): Width of the image to process.
+
+        Returns:
+            float: NMS threshold.
+        """
         boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
         iou_matrix, _ = box_ops.box_iou(boxes_xyxy, boxes_xyxy)
 
@@ -230,7 +241,7 @@ class GSAMDatasetLabeler:
             
             # 4. Compute NMS threshold to apply
             nms_threshold = self.get_adaptive_nms_threshold(num_distractors, logits, boxes, height, width)
-            print(f'NMS strategy: {self.nms_strategy}, NMS threshold: {nms_threshold}.')
+            print(f'NMS strategy: {self.nms_strategy}, NMS threshold: {nms_threshold}')
             if nms_threshold is not None:
                 boxes, logits, phrases = apply_nms(boxes, logits, phrases, nms_threshold)
             
