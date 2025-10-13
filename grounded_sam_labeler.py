@@ -65,7 +65,7 @@ class GSAMDatasetLabeler:
             ada_box_threshold (bool): If True, box_threshold depends on number of distractors in image. 
                 If False, same box_threshold for all processed images. Default False.
             ada_nms_threshold (bool): If True, nms_threshold depends on nms_strategy. Default True.
-            nms_strategy (str): It can be num_distractors, logit_variance or box_overlap. Default num_distractors.
+            nms_strategy (str): It can be num_distractors, logits_variance or boxes_overlap. Default num_distractors.
             max_images (int, optional): Maximum number of images to process. Default None.
 
             NMS, adaptive threshold, non-overlapping masks for better results.
