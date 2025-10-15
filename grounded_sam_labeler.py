@@ -241,7 +241,7 @@ class GSAMDatasetLabeler:
             
             # 4. Compute NMS threshold to apply
             nms_threshold = self.get_adaptive_nms_threshold(num_distractors, logits, boxes, height, width)
-            print(f'NMS strategy: {self.nms_strategy}, NMS threshold: {nms_threshold}')
+            # print(f'NMS strategy: {self.nms_strategy}, NMS threshold: {nms_threshold}')
             if nms_threshold is not None:
                 boxes, logits, phrases = apply_nms(boxes, logits, phrases, nms_threshold)
             
