@@ -18,7 +18,7 @@ from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import annotate, apply_nms, load_image, predict
 
 # GSAM utilities
-from grounded_sam_labeler_util import compute_iou, load_gt_mask, to_numpy_image
+from grounded_sam_labeler_util import apply_nms_on_masks, compute_iou, load_gt_mask, to_numpy_image
 
 # Setup logging
 FORMAT = '%(asctime)s %(levelname)s %(message)s'
@@ -268,12 +268,19 @@ class GSAMDatasetLabeler:
                 boxes = transformed_boxes,
                 multimask_output = False,
             )
+
+            # NMS on masks
+            masks_np = [mask[0].detach().cpu().numpy() for mask in masks]
+            nms_scores = logits.cpu().numpy()
+            kept_indices = apply_nms_on_masks(masks_np, nms_scores, 0.70)
             
             # 7. Evaluate masks and find the best
             masks_info = []
             
-            for i, mask_tensor in enumerate(masks):
-                mask_np = mask_tensor[0].detach().cpu().numpy()
+            # for i, mask_tensor in enumerate(masks):
+            #     mask_np = mask_tensor[0].detach().cpu().numpy()
+            for index in kept_indices:
+                mask_np = masks_np[index]
                 iou = compute_iou(mask_np, gt_mask_bin)
                 
                 masks_info.append({
