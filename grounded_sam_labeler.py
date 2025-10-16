@@ -279,8 +279,8 @@ class GSAMDatasetLabeler:
             
             # for i, mask_tensor in enumerate(masks):
             #     mask_np = mask_tensor[0].detach().cpu().numpy()
-            for index in kept_indices:
-                mask_np = masks_np[index]
+            for i in kept_indices:
+                mask_np = masks_np[i]
                 iou = compute_iou(mask_np, gt_mask_bin)
                 
                 masks_info.append({
