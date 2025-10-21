@@ -44,6 +44,7 @@ class GSAMDatasetLabeler:
         ada_box_threshold: bool = False,  
         ada_nms_threshold: bool = True, 
         nms_strategy: str = "num_distractors",
+        penalty_score: float = 1e-4,
         max_images: Optional[int] = None    # for testing purposes
     ) -> None:
         """
@@ -87,6 +88,7 @@ class GSAMDatasetLabeler:
         self.ada_box_threshold = ada_box_threshold
         self.ada_nms_threshold = ada_nms_threshold
         self.nms_strategy = nms_strategy
+        self.penalty_score = penalty_score
         self.max_images = max_images
         
         # Directories
@@ -97,6 +99,7 @@ class GSAMDatasetLabeler:
 
         # Statistics
         self.kept_count = 0
+        self.total_masks = 0
         
     def create_directories(self):
         """
@@ -273,6 +276,7 @@ class GSAMDatasetLabeler:
             masks_info = []
             
             for i, mask_tensor in enumerate(masks):
+                self.total_masks += 1
                 mask_np = mask_tensor[0].detach().cpu().numpy()
                 iou = compute_iou(mask_np, gt_mask_bin)
                 
@@ -368,8 +372,8 @@ class GSAMDatasetLabeler:
         logger.info('\n========== GSAM LABELING FINISHED ==========')
         logger.info(f"Results of labeling saved in {self.out_dir}")  
         logger.info(f"Kept {self.kept_count} images out of {total_images}: {(self.kept_count/total_images * 100):.2f} %.") 
-        
-        return self.kept_count / total_images
+
+        return -(self.kept_count - self.penalty_score * self.total_masks)
 
 def main(args):
 
