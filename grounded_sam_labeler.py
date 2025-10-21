@@ -368,6 +368,8 @@ class GSAMDatasetLabeler:
         logger.info('\n========== GSAM LABELING FINISHED ==========')
         logger.info(f"Results of labeling saved in {self.out_dir}")  
         logger.info(f"Kept {self.kept_count} images out of {total_images}: {(self.kept_count/total_images * 100):.2f} %.") 
+        
+        return self.kept_count / total_images
 
 def main(args):
 
