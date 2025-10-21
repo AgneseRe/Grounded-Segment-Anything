@@ -319,7 +319,7 @@ class GSAMDatasetLabeler:
                     "is_odd": int(is_odd),
                     "iou": f"{info['iou']:.3f}",
                     "confidence": f"{info['logit']:.3f}",
-                    "target_type": info["phrase"],
+                    "target_type": class_name,
                     "num_distractors": num_distractors
                     })
             
