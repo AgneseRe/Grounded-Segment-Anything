@@ -10,6 +10,7 @@ from PIL import Image
 from pathlib import Path
 from typing import Optional
 from argparse import ArgumentParser
+from torchvision import models, transforms
 
 from tqdm.auto import tqdm
 
@@ -18,12 +19,54 @@ from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import annotate, apply_nms, load_image, predict
 
 # GSAM utilities
-from grounded_sam_labeler_util import apply_nms_on_masks, compute_iou, load_gt_mask, to_numpy_image
+from grounded_sam_labeler_util import compute_iou, load_gt_mask, to_numpy_image, spatial_gate_dbscan, semantic_gate_dbscan, weighted_average_box
 
 # Setup logging
 FORMAT = '%(asctime)s %(levelname)s %(message)s'
 logging.basicConfig(level = logging.INFO, format = FORMAT)
 logger = logging.getLogger(__name__)
+
+# Feature extractor for Dual Gate Clustering
+
+def load_resnet_encoder(device: torch.device):
+    resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET_V1) 
+    # remove last FC layer
+    encoder = torch.nn.Sequential(*(list(resnet.children())[:-1]))
+    encoder.to(device).eval()
+    return encoder
+
+IMAGENET_TRANSFORM = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
+def extract_features_for_boxes(image_np: np.ndarray, boxes_xyxy_pixel: np.ndarray, 
+    encoder: torch.nn.Module, device: torch.device) -> np.ndarray:
+    
+    if len(boxes_xyxy_pixel) == 0:
+        return np.array()
+        
+    cropped_tensors = []
+    
+    for box in boxes_xyxy_pixel:
+        xmin, ymin, xmax, ymax = map(int, box)
+        
+        xmin = max(0, xmin)
+        ymin = max(0, ymin)
+        xmax = min(image_np.shape, xmax)
+        ymax = min(image_np.shape, ymax)
+        
+        cropped_image = Image.fromarray(image_np).crop((xmin, ymin, xmax, ymax))
+        tensor = IMAGENET_TRANSFORM(cropped_image)
+        cropped_tensors.append(tensor)
+
+    batch_tensor = torch.stack(cropped_tensors).to(device)  # batch
+
+    with torch.no_grad():
+        features = encoder(batch_tensor) 
+        embeddings = features.squeeze().cpu().numpy()
+
+    return embeddings
 
 class GSAMDatasetLabeler:
     
@@ -262,6 +305,8 @@ class GSAMDatasetLabeler:
             # 6. Run segmentation model
             self.sam_predictor.set_image(image)
             
+            EPS = 100   # 100 pixel
+            boxes, logits, phrases = spatial_gate_dbscan(boxes, logits, width, height, EPS) 
             boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
             transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             

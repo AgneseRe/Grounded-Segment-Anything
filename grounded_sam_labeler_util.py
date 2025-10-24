@@ -2,6 +2,8 @@ import torch
 import numpy as np
 
 from pathlib import Path
+from sklearn.cluster import DBSCAN
+from sklearn.metrics.pairwise import cosine_similarity
 
 def load_gt_mask(gt_dir: Path, image_name: str):
     """
@@ -89,4 +91,95 @@ def to_numpy_image(img):
     if img.dtype != np.uint8:
         img = (img * 255).clip(0,255).astype(np.uint8)
     return img
+
+
+# ========== BOUNDING BOX REFINEMENT ==========
+# Group Evidence Matters: Tiling-based Semantic Gating for Dense Object Detection
+def spatial_gate_dbscan(boxes: torch.Tensor, logits: torch.Tensor, width: int, height: int, 
+    eps: float, min_samples: int = 2) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+    boxes_np = boxes.cpu().numpy()
+    logits_np = logits.cpu().numpy()
+
+    # obtain centroids, the first two columns of cxcywh boxes and denormalize
+    centroids = boxes_np[:, :2]
+    denormalized_centroids = np.copy(centroids)
+    denormalized_centroids[:, 0] *= width
+    denormalized_centroids[:, 1] *= height
+
+    # apply DBSCAN clustering
+    clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(denormalized_centroids)
+    labels = clustering.labels_
+
+    clustering_indices = np.where(labels != -1)
+    if len(clustering_indices) == 0:
+        return np.array(), np.array(), np.array()
+
+    clustering_labels = labels[clustering_indices]
+    clustering_logits = logits_np[clustering_indices]
+    clustering_boxes = boxes_np[clustering_indices]
+
+    return clustering_boxes, clustering_logits, clustering_labels
+
+def semantic_gate_dbscan(embeddings: np.ndarray, spatial_labels: np.ndarray, 
+    eps: float, min_samples: int = 2) -> np.ndarray:
+    
+    final_labels = np.full(len(embeddings), -1, dtype=int)
+    unique_spatial_labels = np.unique(spatial_labels)
+    cluster_counter = 0
+
+    for label in unique_spatial_labels:
+        if label == -1: # isolated boxes
+            isolated_indices = np.where(spatial_labels == label)
+            final_labels[isolated_indices] = -1
+            continue
+
+        # current cluster
+        cluster_indices = np.where(spatial_labels == label)
+        cluster_embeddings = embeddings[cluster_indices]
+        
+        if len(cluster_embeddings) < min_samples:
+            continue    # too much small
+
+        # apply DBSCAN
+        clustering_semantic = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine').fit(cluster_embeddings)
+        
+        semantic_labels = clustering_semantic.labels_
+        
+        valid_semantic_indices_in_cluster = np.where(semantic_labels != -1)
+        
+        if len(valid_semantic_indices_in_cluster) > 0:
+            global_indices_of_validated = cluster_indices[valid_semantic_indices_in_cluster]
+            final_labels[global_indices_of_validated] = cluster_counter
+            cluster_counter += 1
+
+    return final_labels
+
+def weighted_average_box(boxes: np.ndarray, logits: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    merged_boxes = []
+    merged_logits = []
+
+    unique_labels = np.unique(labels)
+    for label in unique_labels:
+        group_indices = np.where(labels == label)
+        group_boxes = boxes[group_indices]
+        group_logits = logits[group_indices]
+
+        if label == -1: # isolated
+            merged_boxes.append(group_boxes)
+            merged_logits.append(group_logits)
+        else:
+            total_logit = np.sum(group_logits)
+            weights = group_logits / total_logit
+            merged_box = np.sum(group_boxes * weights[:, np.newaxis], axis=0)
+            merged_logit = np.max(group_logits)
+
+            merged_boxes.append(merged_box[np.newaxis, :])
+            merged_logits.append(np.array([merged_logit])) 
+
+    # final results combined
+    final_boxes_xyxy = np.concatenate(merged_boxes, axis=0) if merged_boxes else np.array()
+    final_scores = np.concatenate(merged_logits, axis=0) if merged_logits else np.array()
+
+    return final_boxes_xyxy, final_scores
   
