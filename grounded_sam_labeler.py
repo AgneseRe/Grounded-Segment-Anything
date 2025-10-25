@@ -36,6 +36,7 @@ def load_resnet_encoder(device: torch.device):
     return encoder
 
 IMAGENET_TRANSFORM = transforms.Compose([
+    transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BILINEAR),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
@@ -53,8 +54,8 @@ def extract_features_for_boxes(image_np: np.ndarray, boxes_xyxy_pixel: np.ndarra
         
         xmin = max(0, xmin)
         ymin = max(0, ymin)
-        xmax = min(image_np.shape, xmax)
-        ymax = min(image_np.shape, ymax)
+        xmax = min(image_np.shape[1], xmax)
+        ymax = min(image_np.shape[0], ymax)
         
         cropped_image = Image.fromarray(image_np).crop((xmin, ymin, xmax, ymax))
         tensor = IMAGENET_TRANSFORM(cropped_image)
