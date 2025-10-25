@@ -19,7 +19,7 @@ from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import annotate, apply_nms, load_image, predict
 
 # GSAM utilities
-from grounded_sam_labeler_util import compute_iou, load_gt_mask, to_numpy_image, spatial_gate_dbscan, semantic_gate_dbscan, weighted_average_box
+from grounded_sam_labeler_util import compute_iou, load_gt_mask, to_numpy_image, spatial_gate_dbscan, semantic_gate_dbscan, weighted_average_box, keep_valid_boxes
 
 # Setup logging
 FORMAT = '%(asctime)s %(levelname)s %(message)s'
@@ -143,6 +143,10 @@ class GSAMDatasetLabeler:
         # Statistics
         self.kept_count = 0
         self.total_masks = 0
+
+        # Constants
+        self.MIN_AREA_THRESHOLD = 0.005
+        self.MAX_AREA_THRESHOLD = 0.40
         
     def create_directories(self):
         """
@@ -305,8 +309,8 @@ class GSAMDatasetLabeler:
             # 6. Run segmentation model
             self.sam_predictor.set_image(image)
             
-            EPS = 100   # 100 pixel
-            boxes, logits, phrases = spatial_gate_dbscan(boxes, logits, width, height, EPS) 
+            boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
+            boxes, logits, phrases = spatial_gate_dbscan(boxes, logits, width, height) 
             boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
             transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             
