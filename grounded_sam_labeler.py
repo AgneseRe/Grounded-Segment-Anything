@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Feature extractor for Dual Gate Clustering
 
 def load_resnet_encoder(device: torch.device):
-    resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET_V1) 
+    resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1) 
     # remove last FC layer
     encoder = torch.nn.Sequential(*(list(resnet.children())[:-1]))
     encoder.to(device).eval()
