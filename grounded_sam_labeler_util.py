@@ -192,8 +192,8 @@ def semantic_gate_dbscan(embeddings: np.ndarray, spatial_labels: np.ndarray,
         
         valid_semantic_indices_in_cluster = np.where(semantic_labels != -1)
         
-        if len(valid_semantic_indices_in_cluster) > 0:
-            global_indices_of_validated = cluster_indices[valid_semantic_indices_in_cluster]
+        if len(valid_semantic_indices_in_cluster[0]) > 0:
+            global_indices_of_validated = cluster_indices[0][valid_semantic_indices_in_cluster]
             final_labels[global_indices_of_validated] = cluster_counter
             cluster_counter += 1
 
