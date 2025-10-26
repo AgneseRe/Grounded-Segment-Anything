@@ -222,8 +222,8 @@ def weighted_average_box(boxes: np.ndarray, logits: np.ndarray, labels: np.ndarr
             merged_logits.append(np.array([merged_logit])) 
 
     # final results combined
-    final_boxes_xyxy = np.concatenate(merged_boxes, axis=0) if merged_boxes else np.array()
+    final_boxes_cxcywh = np.concatenate(merged_boxes, axis=0) if merged_boxes else np.array()
     final_scores = np.concatenate(merged_logits, axis=0) if merged_logits else np.array()
 
-    return final_boxes_xyxy, final_scores
+    return final_boxes_cxcywh, final_scores
   
