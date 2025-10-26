@@ -318,7 +318,11 @@ class GSAMDatasetLabeler:
             embeddings = extract_features_for_boxes(image, boxes_np, self.encoder, self.device)
             final_labels = semantic_gate_dbscan(embeddings, labels, 0.35)
             final_boxes_cxcywh, final_scores = weighted_average_box(boxes_np, logits_np, final_labels)
+            # for annotating image
             final_boxes = torch.tensor(final_boxes_cxcywh)
+            final_scores = torch.tensor(final_scores)
+            final_phrases = [class_name] * len(final_boxes_cxcywh)
+            # prepare for SAM
             boxes_xyxy = box_ops.box_cxcywh_to_xyxy(final_boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
             transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             
@@ -342,8 +346,8 @@ class GSAMDatasetLabeler:
                     "box": boxes_xyxy[i].cpu().numpy(),
                     "mask": mask_np,
                     "iou": iou,
-                    "phrase": phrases[i] if i < len(phrases) else class_name,
-                    "logit": logits[i].item() if i < len(logits) else 0.0
+                    "phrase": final_phrases[i] if i < len(final_phrases) else class_name,
+                    "logit": final_scores[i].item() if i < len(final_scores) else 0.0
                 })
             
             best = max(masks_info, key = lambda x: x["iou"])
