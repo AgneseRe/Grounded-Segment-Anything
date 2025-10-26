@@ -206,8 +206,8 @@ def weighted_average_box(boxes: np.ndarray, logits: np.ndarray, labels: np.ndarr
     unique_labels = np.unique(labels)
     for label in unique_labels:
         group_indices = np.where(labels == label)
-        group_boxes = boxes[group_indices]
-        group_logits = logits[group_indices]
+        group_boxes = boxes[group_indices[0]]
+        group_logits = logits[group_indices[0]]
 
         if label == -1:
             merged_boxes.append(group_boxes)

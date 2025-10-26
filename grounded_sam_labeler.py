@@ -148,6 +148,8 @@ class GSAMDatasetLabeler:
         # Constants
         self.MIN_AREA_THRESHOLD = 0.005
         self.MAX_AREA_THRESHOLD = 0.40
+
+        self.encoder = load_resnet_encoder(self.device)
         
     def create_directories(self):
         """
@@ -310,9 +312,13 @@ class GSAMDatasetLabeler:
             # 6. Run segmentation model
             self.sam_predictor.set_image(image)
             
+            # Refine Grounding DINO bbox before applying SAM
             boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
-            boxes, logits, phrases = spatial_gate_dbscan(boxes, logits, width, height) 
-            boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
+            boxes_np, logits_np, labels = spatial_gate_dbscan(boxes, logits, width, height) 
+            embeddings = extract_features_for_boxes(image, boxes_np, self.encoder, self.device)
+            final_labels = semantic_gate_dbscan(embeddings, labels, 0.35)
+            final_boxes_cxcywh, final_scores = weighted_average_box(boxes_np, logits_np, final_labels)
+            boxes_xyxy = box_ops.box_cxcywh_to_xyxy(final_boxes_cxcywh) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
             transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             
             masks, _, _ = self.sam_predictor.predict_torch(
