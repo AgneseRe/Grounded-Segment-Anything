@@ -158,7 +158,7 @@ def spatial_gate_dbscan(boxes: torch.Tensor, logits: torch.Tensor, width: int, h
     box_height = y2 - y1
     diagonals = np.sqrt(box_width**2 + box_height**2)
     average_diagonal = np.mean(diagonals)
-    eps_spatial = 0.1 * average_diagonal    
+    eps_spatial = 0.2 * average_diagonal    
 
     # Apply DBSCAN clustering algorithm
     clustering = DBSCAN(eps=eps_spatial, min_samples=min_samples).fit(denormalized_centroids)
