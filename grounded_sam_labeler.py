@@ -281,7 +281,7 @@ class GSAMDatasetLabeler:
             boxes, logits, phrases = predict(
                 model = self.gd_model,
                 image = image_transformed,
-                caption = class_name,
+                caption = f"a {class_name}.",
                 box_threshold = self.box_threshold,
                 text_threshold = self.text_threshold,
                 nms_threshold=None  # apply later. We need logits, boxes. Line 231
