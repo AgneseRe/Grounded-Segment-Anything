@@ -52,39 +52,6 @@ def compute_iou(pred_mask: np.ndarray, gt_mask: np.ndarray) -> float:
 
   return float(intersection_area) / float(union_area)
 
-
-def apply_nms_on_masks(masks, scores, iou_threshold: float = 0.9) -> list[int]:
-
-    scores = np.asarray(scores)
-
-    sorted_indices = np.argsort(scores)[::-1]
-    
-    kept_indices = []
-    
-    while sorted_indices.size > 0:
-        current_idx_in_original = sorted_indices[0]
-        kept_indices.append(current_idx_in_original)
-        
-        # Rimuove l'indice corrente
-        sorted_indices = sorted_indices[1:]
-        
-        if sorted_indices.size == 0:
-            break
-            
-        current_mask = masks[current_idx_in_original]
-        
-        # Calcola IoU con le maschere rimanenti e filtra
-        remaining_indices = []
-        for next_idx_in_original in sorted_indices:
-            iou = compute_iou(current_mask, masks[next_idx_in_original])
-            if iou < iou_threshold:
-                remaining_indices.append(next_idx_in_original)
-        
-        sorted_indices = np.array(remaining_indices)
-        
-    return kept_indices
-
-
 def to_numpy_image(img):
     if isinstance(img, torch.Tensor):
         img = img.detach().cpu().numpy()

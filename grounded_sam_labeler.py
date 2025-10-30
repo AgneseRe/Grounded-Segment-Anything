@@ -69,6 +69,33 @@ def extract_features_for_boxes(image_np: np.ndarray, boxes_xyxy_pixel: np.ndarra
 
     return embeddings
 
+def apply_nms_on_masks(masks_info, iou_threshold=0.7):
+    if len(masks_info) <= 1:
+        return masks_info
+    
+    masks_info = sorted(masks_info, key=lambda x: x['logit'] * x['pred'], reverse=True)
+
+    keep = []
+    suppressed = set()
+
+    for i, info in enumerate(masks_info):
+        if i in suppressed:  # already suppressed
+            continue
+        keep.append(info)
+        mask_i = info['mask']
+        # discard all following masks with overlap greater than threshold
+        for j in range(i+1, len(masks_info)):
+            if j in suppressed:
+                continue
+            mask_j = masks_info[j]['mask']
+            # compute iou between masks
+            iou = compute_iou(mask_i, mask_j)
+            if iou > iou_threshold:
+                suppressed.add(j)
+                logger.info(f'Mask {j} suppressed by mask {i} (IoU = {iou:.4f})')
+    
+    return keep
+
 class GSAMDatasetLabeler:
     
     def __init__(
@@ -328,7 +355,7 @@ class GSAMDatasetLabeler:
             # boxes_xyxy = box_ops.box_cxcywh_to_xyxy(final_boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
             # transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             
-            masks, predictions, low_res_logits = self.sam_predictor.predict_torch(
+            masks, predictions, _ = self.sam_predictor.predict_torch(
                 point_coords = None,
                 point_labels = None,
                 boxes = transformed_boxes,
@@ -352,11 +379,16 @@ class GSAMDatasetLabeler:
                     "index": i,
                     "box": boxes_xyxy[i].cpu().numpy(),
                     "mask": mask_np,
-                    "iou": iou,
+                    "iou": iou,     # with gt
                     "pred": pred.item(),    # value of tensor
                     "phrase": phrases[i] if i < len(phrases) else class_name,
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
+            
+            masks_info = apply_nms_on_masks(mask_info, iou_threshold=0.7)
+            if not masks_info:
+                logger.warning(f'No valid masks for {image_name} after NMS')
+                return False
             
             best = max(masks_info, key = lambda x: x["iou"])
             base_name = Path(image_name).stem   # without extension
