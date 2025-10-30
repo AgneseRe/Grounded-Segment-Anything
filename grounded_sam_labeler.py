@@ -311,20 +311,22 @@ class GSAMDatasetLabeler:
             
             # 6. Run segmentation model
             self.sam_predictor.set_image(image)
+            boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
+            transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             
             # Refine Grounding DINO bbox before applying SAM
-            boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
-            boxes_np, logits_np, labels = spatial_gate_dbscan(boxes, logits, width, height) 
-            embeddings = extract_features_for_boxes(image, boxes_np, self.encoder, self.device)
-            final_labels = semantic_gate_dbscan(embeddings, labels, 0.35)
-            final_boxes_cxcywh, final_scores = weighted_average_box(boxes_np, logits_np, final_labels)
+            # boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
+            # boxes_np, logits_np, labels = spatial_gate_dbscan(boxes, logits, width, height) 
+            # embeddings = extract_features_for_boxes(image, boxes_np, self.encoder, self.device)
+            # final_labels = semantic_gate_dbscan(embeddings, labels, 0.35)
+            # final_boxes_cxcywh, final_scores = weighted_average_box(boxes_np, logits_np, final_labels)
             # for annotating image
-            final_boxes = torch.tensor(final_boxes_cxcywh)
-            final_scores = torch.tensor(final_scores)
-            final_phrases = [class_name] * len(final_boxes_cxcywh)
+            # final_boxes = torch.tensor(final_boxes_cxcywh)
+            # final_scores = torch.tensor(final_scores)
+            # final_phrases = [class_name] * len(final_boxes_cxcywh)
             # prepare for SAM
-            boxes_xyxy = box_ops.box_cxcywh_to_xyxy(final_boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
-            transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
+            # boxes_xyxy = box_ops.box_cxcywh_to_xyxy(final_boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
+            # transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             
             masks, _, _ = self.sam_predictor.predict_torch(
                 point_coords = None,
