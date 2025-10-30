@@ -328,7 +328,7 @@ class GSAMDatasetLabeler:
             # boxes_xyxy = box_ops.box_cxcywh_to_xyxy(final_boxes) * torch.Tensor([width, height, width, height])   # from cxcywh format to xyxy
             # transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image.shape[:2]).to(self.device)
             
-            masks, _, _ = self.sam_predictor.predict_torch(
+            masks, predictions, low_res_logits = self.sam_predictor.predict_torch(
                 point_coords = None,
                 point_labels = None,
                 boxes = transformed_boxes,
@@ -338,7 +338,10 @@ class GSAMDatasetLabeler:
             # 7. Evaluate masks and find the best
             masks_info = []
             
-            for i, mask_tensor in enumerate(masks):
+            for i, (mask_tensor, pred) in enumerate(zip(masks, predictions)):
+
+                print(pred)
+
                 self.total_masks += 1
                 mask_np = mask_tensor[0].detach().cpu().numpy()
                 iou = compute_iou(mask_np, gt_mask_bin)
