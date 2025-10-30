@@ -366,9 +366,10 @@ class GSAMDatasetLabeler:
             masks_info = []
             
             for i, (mask_tensor, pred) in enumerate(zip(masks, predictions)):
+                pred_value = pred.item()
                 # filter masks with lower quality
-                if pred < 0.85:
-                    logger.info(f'Mask {i} discarded - quality prediction {pred:.4f} < 0.85')
+                if pred_value < 0.85:
+                    logger.info(f'Mask {i} discarded - quality prediction {pred_value:.4f} < 0.85')
                     continue
 
                 self.total_masks += 1
@@ -380,12 +381,12 @@ class GSAMDatasetLabeler:
                     "box": boxes_xyxy[i].cpu().numpy(),
                     "mask": mask_np,
                     "iou": iou,     # with gt
-                    "pred": pred.item(),    # value of tensor
+                    "pred": pred_value,    # value of tensor
                     "phrase": phrases[i] if i < len(phrases) else class_name,
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
             
-            masks_info = apply_nms_on_masks(mask_info, iou_threshold=0.7)
+            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.7)
             if not masks_info:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
