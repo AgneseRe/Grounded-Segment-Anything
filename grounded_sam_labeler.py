@@ -69,7 +69,7 @@ def extract_features_for_boxes(image_np: np.ndarray, boxes_xyxy_pixel: np.ndarra
 
     return embeddings
 
-def apply_nms_on_masks(masks_info, iou_threshold=0.7):
+def apply_nms_on_masks(masks_info, iou_threshold=0.4):
     if len(masks_info) <= 1:
         return masks_info
     
@@ -387,7 +387,7 @@ class GSAMDatasetLabeler:
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
             
-            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.5)
+            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.4)
             if not masks_info:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
