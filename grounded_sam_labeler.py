@@ -313,6 +313,7 @@ class GSAMDatasetLabeler:
                 text_threshold = self.text_threshold,
                 nms_threshold=None  # apply later. We need logits, boxes. Line 231
             )
+            boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
 
             # 3. Check detections
             if boxes is None or len(boxes) == 0:
@@ -386,7 +387,7 @@ class GSAMDatasetLabeler:
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
             
-            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.7)
+            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.5)
             if not masks_info:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
