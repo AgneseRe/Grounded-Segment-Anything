@@ -337,7 +337,7 @@ class GSAMDatasetLabeler:
             
             # 7. Evaluate masks and find the best
             masks_info = []
-            
+            print(image_name)
             for i, (mask_tensor, pred) in enumerate(zip(masks, predictions)):
 
                 print(pred)
