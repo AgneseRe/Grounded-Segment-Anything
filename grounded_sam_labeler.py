@@ -337,10 +337,12 @@ class GSAMDatasetLabeler:
             
             # 7. Evaluate masks and find the best
             masks_info = []
-            print(image_name)
+            
             for i, (mask_tensor, pred) in enumerate(zip(masks, predictions)):
-
-                print(pred)
+                # filter masks with lower quality
+                if pred < 0.85:
+                    logger.info(f'Mask {i} discarded - quality prediction {pred:.4f} < 0.85')
+                    continue
 
                 self.total_masks += 1
                 mask_np = mask_tensor[0].detach().cpu().numpy()
@@ -351,6 +353,7 @@ class GSAMDatasetLabeler:
                     "box": boxes_xyxy[i].cpu().numpy(),
                     "mask": mask_np,
                     "iou": iou,
+                    "pred": pred.item(),    # value of tensor
                     "phrase": phrases[i] if i < len(phrases) else class_name,
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
