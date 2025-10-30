@@ -281,7 +281,7 @@ class GSAMDatasetLabeler:
             boxes, logits, phrases = predict(
                 model = self.gd_model,
                 image = image_transformed,
-                caption = f"a {class_name}.",
+                caption = f"a {class_name} .",
                 box_threshold = self.box_threshold,
                 text_threshold = self.text_threshold,
                 nms_threshold=None  # apply later. We need logits, boxes. Line 231
@@ -348,8 +348,8 @@ class GSAMDatasetLabeler:
                     "box": boxes_xyxy[i].cpu().numpy(),
                     "mask": mask_np,
                     "iou": iou,
-                    "phrase": final_phrases[i] if i < len(final_phrases) else class_name,
-                    "logit": final_scores[i].item() if i < len(final_scores) else 0.0
+                    "phrase": phrases[i] if i < len(phrases) else class_name,
+                    "logit": logits[i].item() if i < len(logits) else 0.0
                 })
             
             best = max(masks_info, key = lambda x: x["iou"])
