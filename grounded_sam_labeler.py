@@ -387,7 +387,7 @@ class GSAMDatasetLabeler:
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
             
-            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.4)
+            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.2)
             if not masks_info:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
