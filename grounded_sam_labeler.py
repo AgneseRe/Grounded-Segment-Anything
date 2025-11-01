@@ -446,7 +446,7 @@ class GSAMDatasetLabeler:
         self.create_directories()
         
         # Load CSV
-        img_props = pd.read_csv(self.csv_path, sep = ";")
+        img_props = pd.read_csv(self.csv_path, sep = ",")
         total_images = len(img_props) if self.max_images is None else min(len(img_props), self.max_images)
         logger.info(f"Processing {total_images} images from {len(img_props)} total.")
         
