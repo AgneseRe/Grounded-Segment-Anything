@@ -1,6 +1,5 @@
 import os
 import csv
-import json
 import torch
 import logging
 import numpy as np
@@ -26,12 +25,10 @@ FORMAT = '%(asctime)s %(levelname)s %(message)s'
 logging.basicConfig(level = logging.INFO, format = FORMAT)
 logger = logging.getLogger(__name__)
 
-# Feature extractor for Dual Gate Clustering
-
+# ========== FEATURE EXTRACTOR DUAL GATE CLUSTERING ==========
 def load_resnet_encoder(device: torch.device):
     resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1) 
-    # remove last FC layer
-    encoder = torch.nn.Sequential(*(list(resnet.children())[:-1]))
+    encoder = torch.nn.Sequential(*(list(resnet.children())[:-1]))  # remove last FC layer
     encoder.to(device).eval()
     return encoder
 
@@ -69,7 +66,9 @@ def extract_features_for_boxes(image_np: np.ndarray, boxes_xyxy_pixel: np.ndarra
 
     return embeddings
 
-def apply_nms_on_masks(masks_info, iou_threshold=0.4):
+# ========== NON MAXIMUM SUPPRESSION SAM MASKS ==========
+def apply_nms_on_masks(masks_info, iou_threshold=0.2):
+
     if len(masks_info) <= 1:
         return masks_info
     
@@ -96,6 +95,7 @@ def apply_nms_on_masks(masks_info, iou_threshold=0.4):
     
     return keep
 
+# GSAMDatasetLabeler
 class GSAMDatasetLabeler:
     
     def __init__(
@@ -108,8 +108,8 @@ class GSAMDatasetLabeler:
         gd_model,
         sam_predictor,
         device,
-        box_threshold: float = 0.30,
-        text_threshold: float = 0.25,
+        box_threshold: float = 0.25,
+        text_threshold: float = 0.35,
         iou_threshold: float = 0.75,
         nms_threshold: Optional[float] = None,
         ada_box_threshold: bool = False,  
@@ -130,8 +130,8 @@ class GSAMDatasetLabeler:
             gd_model: Grounding DINO model instance.
             sam_predictor: SAM predictor instance.
             device (torch.device): Device on which to run models.
-            box_threshold (float, optional): Confidence threshold for bounding boxes. Default 0.30.
-            text_threshold (float, optional): Confidence threshold for text predictions. Default 0.25.
+            box_threshold (float, optional): Confidence threshold for bounding boxes. Default 0.25.
+            text_threshold (float, optional): Confidence threshold for text predictions. Default 0.35.
             iou_threshold (float, optional): IoU threshold for keeping masks. Default 0.75.
             nms_threshold (float, optional): IoU threshold for NMS. Default None.
             ada_box_threshold (bool): If True, box_threshold depends on number of distractors in image. 
@@ -139,8 +139,6 @@ class GSAMDatasetLabeler:
             ada_nms_threshold (bool): If True, nms_threshold depends on nms_strategy. Default True.
             nms_strategy (str): It can be num_distractors, logits_variance or boxes_overlap. Default num_distractors.
             max_images (int, optional): Maximum number of images to process. Default None.
-
-            NMS, adaptive threshold, non-overlapping masks for better results.
         """
         self.root = root
         self.img_dir = img_dir
@@ -311,8 +309,9 @@ class GSAMDatasetLabeler:
                 caption = f"{class_name}",
                 box_threshold = self.box_threshold,
                 text_threshold = self.text_threshold,
-                nms_threshold=None  # apply later. We need logits, boxes. Line 231
+                nms_threshold=None  # apply later
             )
+
             boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
 
             # 3. Check detections
@@ -322,7 +321,6 @@ class GSAMDatasetLabeler:
             
             # 4. Compute NMS threshold to apply
             nms_threshold = self.get_adaptive_nms_threshold(num_distractors, logits, boxes, height, width)
-            # print(f'NMS strategy: {self.nms_strategy}, NMS threshold: {nms_threshold}')
             if nms_threshold is not None:
                 boxes, logits, phrases = apply_nms(boxes, logits, phrases, nms_threshold)
             
@@ -334,7 +332,6 @@ class GSAMDatasetLabeler:
             
             gt_mask = Image.open(gt_path).convert(mode = "L")
             gt_mask_np = np.array(gt_mask)
-            # print(np.unique(gt_mask_np))
             gt_mask_bin = (gt_mask_np > 127).astype(np.uint8)
             
             # 6. Run segmentation model
