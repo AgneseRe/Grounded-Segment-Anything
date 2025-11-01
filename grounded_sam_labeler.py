@@ -174,7 +174,7 @@ class GSAMDatasetLabeler:
 
         # Constants
         self.MIN_AREA_THRESHOLD = 0.005
-        self.MAX_AREA_THRESHOLD = 0.40
+        self.MAX_AREA_THRESHOLD = 0.50
 
         self.encoder = load_resnet_encoder(self.device)
         

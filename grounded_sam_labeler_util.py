@@ -65,7 +65,7 @@ def to_numpy_image(img):
 # ========== BOUNDING BOX REFINEMENT ==========
 
 def keep_valid_boxes(boxes: torch.Tensor, logits: torch.Tensor, phrases: List[str], 
-    min_area_threshold: float = 0.001, max_area_threshold: float = 0.40) -> Tuple[
+    min_area_threshold: float = 0.005, max_area_threshold: float = 0.50) -> Tuple[
         torch.Tensor, torch.Tensor, List[str]]:
     """
     Filters Grounding DINO bounding boxes, logits and phrases, maintaining only those 
