@@ -90,6 +90,35 @@ def keep_valid_boxes(boxes: torch.Tensor, logits: torch.Tensor, phrases: List[st
 
     return filtered_boxes, filtered_logits, filtered_phrases
 
+# ========== NON MAXIMUM SUPPRESSION SAM MASKS ==========
+def apply_nms_on_masks(masks_info, iou_threshold=0.2):
+
+    if len(masks_info) <= 1:
+        return masks_info
+    
+    masks_info = sorted(masks_info, key=lambda x: x['logit'] * x['pred'], reverse=True)
+
+    keep = []
+    suppressed = set()
+
+    for i, info in enumerate(masks_info):
+        if i in suppressed:  # already suppressed
+            continue
+        keep.append(info)
+        mask_i = info['mask']
+        # discard all following masks with overlap greater than threshold
+        for j in range(i+1, len(masks_info)):
+            if j in suppressed:
+                continue
+            mask_j = masks_info[j]['mask']
+            # compute iou between masks
+            iou = compute_iou(mask_i, mask_j)
+            if iou > iou_threshold:
+                suppressed.add(j)
+                logger.info(f'Mask {j} suppressed by mask {i} (IoU = {iou:.4f})')
+    
+    return keep
+
 # Group Evidence Matters: Tiling-based Semantic Gating for Dense Object Detection
 # Yilun Xiao, https://www.arxiv.org/abs/2509.10779
 def spatial_gate_dbscan(boxes: torch.Tensor, logits: torch.Tensor, width: int, height: int, 
