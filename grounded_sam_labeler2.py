@@ -25,6 +25,35 @@ FORMAT = '%(asctime)s %(levelname)s %(message)s'
 logging.basicConfig(level = logging.INFO, format = FORMAT)
 logger = logging.getLogger(__name__)
 
+# ========== NON MAXIMUM SUPPRESSION SAM MASKS ==========
+def apply_nms_on_masks(masks_info, iou_threshold=0.2):
+
+    if len(masks_info) <= 1:
+        return masks_info
+    
+    masks_info = sorted(masks_info, key=lambda x: x['logit'], reverse=True)
+
+    keep = []
+    suppressed = set()
+
+    for i, info in enumerate(masks_info):
+        if i in suppressed:  # already suppressed
+            continue
+        keep.append(info)
+        mask_i = info['mask']
+        # discard all following masks with overlap greater than threshold
+        for j in range(i+1, len(masks_info)):
+            if j in suppressed:
+                continue
+            mask_j = masks_info[j]['mask']
+            # compute iou between masks
+            iou = compute_iou(mask_i, mask_j)
+            if iou > iou_threshold:
+                suppressed.add(j)
+                logger.info(f'Mask {j} suppressed by mask {i} (IoU = {iou:.4f})')
+    
+    return keep
+
 class GSAMDatasetLabeler:
 
     def __init__(
@@ -288,7 +317,12 @@ class GSAMDatasetLabeler:
                     "phrase": phrases[i] if i < len(phrases) else class_name,
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
-
+            
+            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.2)
+            if not masks_info:
+                logger.warning(f'No valid masks for {image_name} after NMS')
+                return False
+            
             best = max(masks_info, key = lambda x: x["iou"])
             base_name = Path(image_name).stem   # without extension
 
