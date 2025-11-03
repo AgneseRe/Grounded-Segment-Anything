@@ -18,7 +18,7 @@ from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import annotate, apply_nms, load_image, predict
 
 # GSAM utilities
-from grounded_sam_labeler_util import compute_iou, load_gt_mask, to_numpy_image
+from grounded_sam_labeler_util import compute_iou, keep_valid_boxes, load_gt_mask, to_numpy_image
 
 # Setup logging
 FORMAT = '%(asctime)s %(levelname)s %(message)s'
@@ -129,6 +129,10 @@ class GSAMDatasetLabeler:
         # Statistics
         self.kept_count = 0
         self.total_masks = 0
+
+        # Constants
+        self.MIN_AREA_THRESHOLD = 0.005
+        self.MAX_AREA_THRESHOLD = 0.40
 
     def create_directories(self):
         """
@@ -265,6 +269,8 @@ class GSAMDatasetLabeler:
                 text_threshold = self.text_threshold,
                 nms_threshold=None  # apply later. We need logits, boxes. Line 231
             )
+
+            boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
 
             # 3. Check detections
             if boxes is None or len(boxes) == 0:
