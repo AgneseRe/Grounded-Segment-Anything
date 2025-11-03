@@ -172,7 +172,7 @@ class GSAMDatasetLabeler:
 
         # Constants
         self.MIN_AREA_THRESHOLD = 0.005
-        self.MAX_AREA_THRESHOLD = 0.50
+        self.MAX_AREA_THRESHOLD = 0.40
 
         self.encoder = load_resnet_encoder(self.device)
         
@@ -312,7 +312,7 @@ class GSAMDatasetLabeler:
                 nms_threshold=None  # apply later
             )
 
-            # boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
+            boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
 
             # 3. Check detections
             if boxes is None or len(boxes) == 0:
