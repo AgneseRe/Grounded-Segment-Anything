@@ -18,7 +18,7 @@ from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import annotate, apply_nms, load_image, predict
 
 # GSAM utilities
-from grounded_sam_labeler_util import apply_nms_on_masks, compute_iou, load_gt_mask, to_numpy_image
+from grounded_sam_labeler_util import compute_iou, load_gt_mask, to_numpy_image
 
 # Setup logging
 FORMAT = '%(asctime)s %(levelname)s %(message)s'
