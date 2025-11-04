@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 
+from PIL import Image
 from pathlib import Path
 from typing import List, Tuple
 from sklearn.cluster import DBSCAN
@@ -9,19 +10,22 @@ from GroundingDINO.groundingdino.util import box_ops
 
 def load_gt_mask(gt_dir: Path, image_name: str):
     """
-    Find the corresponding ground truth mask based on the image name.
+    Find the ground truth mask based on the image name and convert it in binary format.
 
     Args:
         root (Path): The root directory containing data.
         image_name (str): The name of the image.
 
     Returns:
-        The path to the corresponding ground truth mask if found. Otherwise None.
+        The ground truth mask in binary format. Otherwise None.
     """
     base_name = Path(image_name).stem  # without extension
     expected_gt_path = gt_dir / (base_name + ".jpg")
     if expected_gt_path.exists():
-        return expected_gt_path
+        gt_mask = Image.open(expected_gt_path).convert(mode = "L")
+        gt_mask_np = np.array(gt_mask)
+        gt_mask_bin = (gt_mask_np > 127).astype(np.uint8)
+        return gt_mask_bin
     else:
         return None
     

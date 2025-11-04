@@ -8,7 +8,7 @@ import pandas as pd
 
 from PIL import Image
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 from argparse import ArgumentParser
 
 from tqdm.auto import tqdm
@@ -54,13 +54,39 @@ def apply_nms_on_masks(masks_info, iou_threshold=0.2):
     
     return keep
 
+def compute_coverage_pollution_distractors(pred_mask: np.ndarray, gt_mask: np.ndarray) -> Tuple[float, float]:
+    """
+    Computes coverage and pollution metrics for distractors.
+
+    Args:
+        pred_mask (np.ndarray): Binary union of distractors masks generated with GSAM.
+        gt_mask (np.ndarray): Ground truth mask of distractors.
+
+    Returns:
+        Tuple[float, float]: Coverage and pollution of distractors masks.
+    """
+    pred_mask_bool = pred_mask.astype(bool)
+    gt_mask_bool = gt_mask.astype(bool)
+    # Compute masks area and intersection
+    pred_mask_area = np.sum(pred_mask_bool)
+    gt_mask_area = np.sum(gt_mask_bool)
+    intersection_area = np.sum(np.logical_and(pred_mask_bool, gt_mask_bool))
+    # Coverage: how much of ground truth is covered by GSAM predictions
+    coverage = intersection_area / gt_mask_area if gt_mask_area > 0 else 0.0 
+    # Pollution: how much of GSAM predictions is outside the ground truth
+    pollution = (pred_mask_area - intersection_area) / pred_mask_area if pred_mask_area > 0 else 0.0
+
+    return coverage, pollution
+
+
 class GSAMDatasetLabeler:
 
     def __init__(
         self,
         root,
         img_dir,
-        gt_dir,
+        gt_odd_dir,
+        gt_dist_dir,
         csv_path,
         out_dir,
         gd_model,
@@ -82,7 +108,8 @@ class GSAMDatasetLabeler:
         Args:
             root (Path): Root directory for images and ground truth masks.
             img_dir (Path): Directory containing dataset original images.
-            gt_dir (Path): Directory containing dataset ground truth masks.
+            gt_odd_dir (Path): Directory containing dataset ground truth masks for odd object.
+            gt_dist_dir (Path): Directory containing dataset ground truth masks for distractors.
             csv_path (Path): CSV file path containing dataset metadata.
             out_dir (Path): Output directory for storing results.
             gd_model: Grounding DINO model instance.
@@ -102,7 +129,8 @@ class GSAMDatasetLabeler:
         """
         self.root = root
         self.img_dir = img_dir
-        self.gt_dir = gt_dir
+        self.gt_odd_dir = gt_odd_dir
+        self.gt_dist_dir = gt_dist_dir
         self.csv_path = csv_path
         self.out_dir = out_dir
         self.gd_model = gd_model
@@ -129,6 +157,8 @@ class GSAMDatasetLabeler:
         # Statistics
         self.kept_count = 0
         self.total_masks = 0
+        self.total_coverage = 0.0
+        self.total_pollution = 0.0
 
         # Constants
         self.MIN_AREA_THRESHOLD = 0.005
@@ -283,16 +313,16 @@ class GSAMDatasetLabeler:
             if nms_threshold is not None:
                 boxes, logits, phrases = apply_nms(boxes, logits, phrases, nms_threshold)
 
-            # 5. Load ground truth mask and convert it in binary
-            gt_path = load_gt_mask(self.gt_dir, image_name)
-            if gt_path is None:
-                logger.warning(f"Ground truth mask not found for '{image_name}'")
+            # 5. Load binary ground truth mask for odd and distractors
+            gt_odd_mask_bin = load_gt_mask(self.gt_odd_dir, image_name)
+            if gt_odd_mask_bin is None:
+                logger.warning(f"Error during loading of odd ground truth mask for '{image_name}'")
                 return False
-
-            gt_mask = Image.open(gt_path).convert(mode = "L")
-            gt_mask_np = np.array(gt_mask)
-            # print(np.unique(gt_mask_np))
-            gt_mask_bin = (gt_mask_np > 127).astype(np.uint8)
+            
+            gt_dist_mask_bin = load_gt_mask(self.gt_dist_dir, image_name)
+            if gt_dist_mask_bin is None:
+                logger.warning(f"Error during loading of distractors ground truth mask for '{image_name}'")
+                return False
 
             # 6. Run segmentation model
             self.sam_predictor.set_image(image)
@@ -307,13 +337,13 @@ class GSAMDatasetLabeler:
                 multimask_output = False,
             )
 
-            # 7. Evaluate masks and find the best
+            # 7. Masks evaluation and distractors metrics computation
             masks_info = []
 
             for i, mask_tensor in enumerate(masks):
                 self.total_masks += 1
                 mask_np = mask_tensor[0].detach().cpu().numpy()
-                iou = compute_iou(mask_np, gt_mask_bin)
+                iou = compute_iou(mask_np, gt_odd_mask_bin)
 
                 masks_info.append({
                     "index": i,
@@ -329,8 +359,17 @@ class GSAMDatasetLabeler:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
             
-            best = max(masks_info, key = lambda x: x["iou"])
-            base_name = Path(image_name).stem   # without extension
+            best = max(masks_info, key = lambda x: x["iou"])    # best mask
+            base_name = Path(image_name).stem   
+
+            distractors_masks = [info["mask"] for info in masks_info if info["index"] != best["index"]] # exclude ODD mask
+            if distractors_masks:
+                distractors_mask_union = np.zeros_like(distractors_masks[0], dtype=bool)
+                for mask in distractors_masks:
+                    distractors_mask_union = distractors_mask_union | mask.astype(bool)
+                coverage, pollution = compute_coverage_pollution_distractors(distractors_mask_union, gt_dist_mask_bin)
+            else:
+                logger.warning(f"No distractors masks found for '{image_name}.")
 
             # 8 Save results
             is_kept = best["iou"] >= self.iou_threshold
@@ -341,7 +380,7 @@ class GSAMDatasetLabeler:
 
             # 8a. save original image and corresponding ground truth for reference
             Image.fromarray(to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
-            Image.fromarray((gt_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
+            Image.fromarray((gt_odd_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
 
             for info in masks_info:
                 is_odd = (info["index"] == best["index"]) and is_kept
@@ -366,6 +405,9 @@ class GSAMDatasetLabeler:
             # 9. Log result
             if is_kept:
                 self.kept_count += 1
+                self.total_coverage += coverage
+                self.total_pollution += pollution
+                print(f"{image_name}: coverage = {coverage:.3f} - pollution = {pollution:.3f}")
                 logger.info(f" KEPT - best IoU = {best['iou']:.3f}")
             else:
                 logger.info(f" DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
@@ -413,7 +455,7 @@ class GSAMDatasetLabeler:
         logger.info(f"Results of labeling saved in {self.out_dir}")  
         logger.info(f"Kept {self.kept_count} images out of {total_images}: {(self.kept_count/total_images * 100):.2f} %.") 
 
-        return -(self.kept_count - self.penalty_score * self.total_masks)
+        return self.kept_count, self.total_coverage / self.kept_count, self.total_pollution / self.kept_count
 
 def main(args):
 
@@ -423,7 +465,7 @@ def main(args):
     labeler = GSAMDatasetLabeler(
         root=args.root_dir,
         img_dir=args.img_dir,
-        gt_dir=args.gt_dir,
+        gt_odd_dir=args.gt_odd_dir,
         csv_path=args.csv_path,
         out_dir=args.out_dir,
         gd_model=args.gd_model,  
@@ -471,8 +513,8 @@ if __name__ == '__main__':
     if args.img_dir is None:
         args.img_dir = args.root_dir / 'images'
 
-    if args.gt_dir is None:
-        args.gt_dir = args.root_dir / 'targ_labels'
+    if args.gt_odd_dir is None:
+        args.gt_odd_dir = args.root_dir / 'targ_labels'
 
     if args.csv_path is None:
         args.csv_path = args.root_dir / 'image_properties.csv'
