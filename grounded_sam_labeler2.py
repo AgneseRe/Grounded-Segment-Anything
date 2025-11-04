@@ -407,7 +407,7 @@ class GSAMDatasetLabeler:
                 self.kept_count += 1
                 self.total_coverage += coverage
                 self.total_pollution += pollution
-                print(f"{image_name}: coverage = {coverage:.3f} - pollution = {pollution:.3f}")
+                # print(f"{image_name}: coverage = {coverage:.3f} - pollution = {pollution:.3f}")
                 logger.info(f" KEPT - best IoU = {best['iou']:.3f}")
             else:
                 logger.info(f" DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
