@@ -157,8 +157,10 @@ class GSAMDatasetLabeler:
         # Statistics
         self.kept_count = 0
         self.total_masks = 0
-        self.total_coverage = 0.0
-        self.total_pollution = 0.0
+        self.coverage_list = []
+        self.pollution_list = []
+        self.missing_distractors_count = 0
+        self.missing_dino_detections_count = 0
 
         # Constants
         self.MIN_AREA_THRESHOLD = 0.005
@@ -305,6 +307,7 @@ class GSAMDatasetLabeler:
             # 3. Check detections
             if boxes is None or len(boxes) == 0:
                 logger.warning(f"No Grounding DINO detections for '{image_name}'")
+                self.missing_dino_detections_count += 1
                 return False
 
             # 4. Compute NMS threshold to apply
@@ -361,7 +364,8 @@ class GSAMDatasetLabeler:
             
             best = max(masks_info, key = lambda x: x["iou"])    # best mask
             base_name = Path(image_name).stem   
-
+            
+            coverage, pollution = 0, 0 
             distractors_masks = [info["mask"] for info in masks_info if info["index"] != best["index"]] # exclude ODD mask
             if distractors_masks:
                 distractors_mask_union = np.zeros_like(distractors_masks[0], dtype=bool)
@@ -370,6 +374,7 @@ class GSAMDatasetLabeler:
                 coverage, pollution = compute_coverage_pollution_distractors(distractors_mask_union, gt_dist_mask_bin)
             else:
                 logger.warning(f"No distractors masks found for '{image_name}.")
+                self.missing_distractors_count += 1
 
             # 8 Save results
             is_kept = best["iou"] >= self.iou_threshold
@@ -405,8 +410,8 @@ class GSAMDatasetLabeler:
             # 9. Log result
             if is_kept:
                 self.kept_count += 1
-                self.total_coverage += coverage
-                self.total_pollution += pollution
+                self.coverage_list.append(coverage)
+                self.pollution_list.append(pollution)
                 # print(f"{image_name}: coverage = {coverage:.3f} - pollution = {pollution:.3f}")
                 logger.info(f" KEPT - best IoU = {best['iou']:.3f}")
             else:
@@ -455,7 +460,12 @@ class GSAMDatasetLabeler:
         logger.info(f"Results of labeling saved in {self.out_dir}")  
         logger.info(f"Kept {self.kept_count} images out of {total_images}: {(self.kept_count/total_images * 100):.2f} %.") 
 
-        return self.kept_count, self.total_coverage / self.kept_count, self.total_pollution / self.kept_count
+        # Average and std coverage and pollution
+        avg_coverage, std_coverage = np.mean(self.coverage_list), np.std(self.coverage_list)
+        avg_pollution, std_pollution = np.mean(self.pollution_list), np.std(self.pollution_list)
+
+        return (self.kept_count, round(avg_coverage, 4), round(std_coverage, 4), round(avg_pollution, 4), 
+                round(std_pollution, 4), self.missing_dino_detections_count, self.missing_distractors_count)
 
 def main(args):
 
