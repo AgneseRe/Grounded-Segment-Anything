@@ -87,7 +87,7 @@ def keep_valid_boxes(boxes: torch.Tensor, logits: torch.Tensor, phrases: List[st
     """
     areas = boxes[:, 2] * boxes[:, 3]  # calculate areas as width * height
 
-    valid_mask = (areas >= min_area_threshold) & (areas <= max_area_threshold)
+    valid_mask = areas <= max_area_threshold    # (areas >= min_area_threshold) & (areas <= max_area_threshold)
     filtered_boxes = boxes[valid_mask]
     filtered_logits = logits[valid_mask]
     filtered_phrases = np.array(phrases)[valid_mask].tolist() # !!!
