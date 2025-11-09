@@ -3,7 +3,7 @@ import numpy as np
 
 from PIL import Image
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from sklearn.cluster import DBSCAN
 from sklearn.metrics.pairwise import cosine_similarity
 from GroundingDINO.groundingdino.util import box_ops
@@ -96,6 +96,57 @@ def keep_valid_boxes(boxes: torch.Tensor, logits: torch.Tensor, phrases: List[st
 
 # Group Evidence Matters: Tiling-based Semantic Gating for Dense Object Detection
 # Yilun Xiao, https://www.arxiv.org/abs/2509.10779
+def compute_hash(box: np.ndarray, class_name: str) -> int:
+  x1, y1, x2, y2 = np.round(box, 2)
+  return hash((x1, y1, x2, y2, class_name)) # hashed value only for immutable objects
+
+def remove_duplicates(boxes: torch.Tensor, logits: torch.Tensor, phrases: List[str]) -> List[Dict]:
+  seen_hashes = set()
+  unique_indices = []
+
+  for i in range(len(boxes)):
+      det_hash = compute_hash(boxes[i].cpu().numpy(), phrases[i])
+      if det_hash not in seen_hashes:
+        seen_hashes.add(det_hash)
+        unique_indices.append(i)
+
+  unique_boxes = boxes[unique_indices]
+  unique_logits = logits[unique_indices]
+  unique_phrases = [phrases[i] for i in unique_indices]
+
+  return unique_boxes, unique_logits, unique_phrases
+
+def generate_tiles(image: np.ndarray, tile_size, overlap_size) -> List[Dict]:
+    """Generates tiles of size tile_size x tile_size with overlap_size pixels."""
+    tiles = []
+    H, W, _ = image.shape
+    stride = tile_size - overlap_size # S = T - O
+
+    y = 0
+    while y < H:
+        y_start = y
+        if y + tile_size > H: # out of border
+            y_start = H - tile_size
+
+        x = 0
+        while x < W:
+
+            x_start = x
+            if x + tile_size > W:
+                x_start = W - tile_size
+            # create tile
+            tile = image[y_start : y_start + tile_size, x_start : x_start + tile_size]
+            tiles.append({'tile': tile, 'y_start': y_start, 'x_start': x_start})
+            if x_start == W - tile_size:
+                break
+            x += stride
+
+        if y_start == H - tile_size:
+            break
+        y += stride
+
+    return tiles
+
 def spatial_gate_dbscan(boxes: torch.Tensor, logits: torch.Tensor, width: int, height: int, 
     min_samples: int = 2) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -125,11 +176,9 @@ def spatial_gate_dbscan(boxes: torch.Tensor, logits: torch.Tensor, width: int, h
     boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.Tensor([width, height, width, height])
     boxes_xyxy_np = boxes_xyxy.cpu().numpy()
     x1, y1, x2, y2 = boxes_xyxy_np[:, 0], boxes_xyxy_np[:, 1], boxes_xyxy_np[:, 2], boxes_xyxy_np[:, 3]
-    box_width = x2 - x1
-    box_height = y2 - y1
-    diagonals = np.sqrt(box_width**2 + box_height**2)
+    diagonals = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
     average_diagonal = np.mean(diagonals)
-    eps_spatial = 0.2 * average_diagonal    
+    eps_spatial = 1.5 * average_diagonal    
 
     # Apply DBSCAN clustering algorithm
     clustering = DBSCAN(eps=eps_spatial, min_samples=min_samples).fit(denormalized_centroids)
@@ -147,26 +196,29 @@ def semantic_gate_dbscan(embeddings: np.ndarray, spatial_labels: np.ndarray,
     cluster_counter = 0
 
     for label in unique_spatial_labels:
-        if label == -1: # isolated boxes
-            isolated_indices = np.where(spatial_labels == label)
-            final_labels[isolated_indices] = -1
-            continue
+        if label == -1:  # isolated boxes
+            continue  
 
-        cluster_indices = np.where(spatial_labels == label)
+        cluster_indices = np.where(spatial_labels == label)[0]
         cluster_embeddings = embeddings[cluster_indices]
         
         if len(cluster_embeddings) < min_samples:
-            continue  
+            final_labels[cluster_indices] = -1  # noise
+            continue
 
         clustering_semantic = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine').fit(cluster_embeddings)
         semantic_labels = clustering_semantic.labels_
         
-        valid_semantic_indices_in_cluster = np.where(semantic_labels != -1)
-        
-        if len(valid_semantic_indices_in_cluster[0]) > 0:
-            global_indices_of_validated = cluster_indices[0][valid_semantic_indices_in_cluster]
-            final_labels[global_indices_of_validated] = cluster_counter
-            cluster_counter += 1
+        unique_semantic_labels = np.unique(semantic_labels)
+        for sem_label in unique_semantic_labels:
+            if sem_label == -1:
+                continue 
+            
+            valid_indices_in_cluster = np.where(semantic_labels == sem_label)[0]
+            global_indices = cluster_indices[valid_indices_in_cluster]
+            
+            final_labels[global_indices] = cluster_counter
+            cluster_counter += 1 
 
     return final_labels
 
@@ -176,9 +228,9 @@ def weighted_average_box(boxes: np.ndarray, logits: np.ndarray, labels: np.ndarr
 
     unique_labels = np.unique(labels)
     for label in unique_labels:
-        group_indices = np.where(labels == label)
-        group_boxes = boxes[group_indices[0]]
-        group_logits = logits[group_indices[0]]
+        group_indices = np.where(labels == label)[0]
+        group_boxes = boxes[group_indices]
+        group_logits = logits[group_indices]
 
         if label == -1:
             merged_boxes.append(group_boxes)
