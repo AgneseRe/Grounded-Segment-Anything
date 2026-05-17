@@ -92,6 +92,7 @@ class GSAMDatasetLabeler:
         gd_model,
         sam_predictor,
         device,
+        dataset: str,   # O3 or FLUX
         box_threshold: float = 0.30,
         text_threshold: float = 0.25,
         iou_threshold: float = 0.75,
@@ -136,6 +137,7 @@ class GSAMDatasetLabeler:
         self.gd_model = gd_model
         self.sam_predictor = sam_predictor
         self.device = device
+        self.dataset = dataset.upper()
 
         # Thresholds (box and nms can be adapted)
         self.box_threshold = box_threshold
@@ -269,16 +271,21 @@ class GSAMDatasetLabeler:
         Returns:
             bool: True if the image was successfully processed. Otherwise False.
         """
-        image_name = row['image_name']
-        class_name = row['target_type']
-        num_distractors = row['num_distractors']
+        if self.dataset == 'O3':
+            image_name = row['image_name']
+            class_name = row['target_type']
+            num_distractors = row['num_distractors']
 
-        # Check if adaptive box threshold mode
-        if self.ada_box_threshold: 
-            if num_distractors >= 30:
-                self.box_threshold = 0.25
-            else:
-                self.box_threshold = 0.30
+            # Check if adaptive box threshold mode
+            if self.ada_box_threshold: 
+                if num_distractors >= 30:
+                    self.box_threshold = 0.25
+                else:
+                    self.box_threshold = 0.30
+        else:   # FLUX dataset
+            image_name = f"{row['triplet_id']}_v00.jpg"
+            class_name = f"{row['distractor_a_name']} . {row['distractor_b_name']} . {row['odd_name']}"
+            num_distractors = 10    # a medium value. Not used because fixed NMS
 
         logger.info(f"\nProcessing '{image_name}' (class '{class_name}')")
 
@@ -316,16 +323,17 @@ class GSAMDatasetLabeler:
             if nms_threshold is not None:
                 boxes, logits, phrases = apply_nms(boxes, logits, phrases, nms_threshold)
 
-            # 5. Load binary ground truth mask for odd and distractors
-            gt_odd_mask_bin = load_gt_mask(self.gt_odd_dir, image_name)
-            if gt_odd_mask_bin is None:
-                logger.warning(f"Error during loading of odd ground truth mask for '{image_name}'")
-                return False
-            
-            gt_dist_mask_bin = load_gt_mask(self.gt_dist_dir, image_name)
-            if gt_dist_mask_bin is None:
-                logger.warning(f"Error during loading of distractors ground truth mask for '{image_name}'")
-                return False
+            # 5. Load binary ground truth mask for odd and distractors (only for O3)
+            if self.dataset == 'O3':
+                gt_odd_mask_bin = load_gt_mask(self.gt_odd_dir, image_name)
+                if gt_odd_mask_bin is None:
+                    logger.warning(f"Error during loading of odd ground truth mask for '{image_name}'")
+                    return False
+                
+                gt_dist_mask_bin = load_gt_mask(self.gt_dist_dir, image_name)
+                if gt_dist_mask_bin is None:
+                    logger.warning(f"Error during loading of distractors ground truth mask for '{image_name}'")
+                    return False
 
             # 6. Run segmentation model
             self.sam_predictor.set_image(image)
@@ -346,14 +354,23 @@ class GSAMDatasetLabeler:
             for i, mask_tensor in enumerate(masks):
                 self.total_masks += 1
                 mask_np = mask_tensor[0].detach().cpu().numpy()
-                iou = compute_iou(mask_np, gt_odd_mask_bin)
+                detected_phrase = phrases[i] if i < len(phrases) else class_name
+
+                iou = 0.0
+                is_the_odd = False
+
+                if self.dataset == 'O3':
+                    iou = compute_iou(mask_np, gt_odd_mask_bin)
+                else:
+                    is_the_odd = row['odd_name'].lower() in detected_phrase
 
                 masks_info.append({
                     "index": i,
                     "box": boxes_xyxy[i].cpu().numpy(),
                     "mask": mask_np,
                     "iou": iou,
-                    "phrase": phrases[i] if i < len(phrases) else class_name,
+                    "is_odd": is_the_odd,
+                    "phrase": detected_phrase,
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
             
@@ -362,33 +379,38 @@ class GSAMDatasetLabeler:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
             
-            best = max(masks_info, key = lambda x: x["iou"])    # best mask
-            base_name = Path(image_name).stem   
-            
-            coverage, pollution = 0, 0 
-            distractors_masks = [info["mask"] for info in masks_info if info["index"] != best["index"]] # exclude ODD mask
-            if distractors_masks:
-                distractors_mask_union = np.zeros_like(distractors_masks[0], dtype=bool)
-                for mask in distractors_masks:
-                    distractors_mask_union = distractors_mask_union | mask.astype(bool)
-                coverage, pollution = compute_coverage_pollution_distractors(distractors_mask_union, gt_dist_mask_bin)
-            else:
-                logger.warning(f"No distractors masks found for '{image_name}.")
-                self.missing_distractors_count += 1
-
-            # 8 Save results
-            is_kept = best["iou"] >= self.iou_threshold
-            lbl_writer = lbl_kept_writer if is_kept else lbl_discarded_writer
-            target_dir = self.kept_dir if is_kept else self.discarded_dir
+            base_name = Path(image_name).stem
             out_image_dir = target_dir / base_name
             os.makedirs(out_image_dir, exist_ok = True)
 
-            # 8a. save original image and corresponding ground truth for reference
-            Image.fromarray(to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
-            Image.fromarray((gt_odd_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
+            if self.dataset == 'O3':
+                best = max(masks_info, key = lambda x: x["iou"])    # best mask   
+                
+                coverage, pollution = 0, 0 
+                distractors_masks = [info["mask"] for info in masks_info if info["index"] != best["index"]] # exclude ODD mask
+                if distractors_masks:
+                    distractors_mask_union = np.zeros_like(distractors_masks[0], dtype=bool)
+                    for mask in distractors_masks:
+                        distractors_mask_union = distractors_mask_union | mask.astype(bool)
+                    coverage, pollution = compute_coverage_pollution_distractors(distractors_mask_union, gt_dist_mask_bin)
+                else:
+                    logger.warning(f"No distractors masks found for '{image_name}.")
+                    self.missing_distractors_count += 1
+
+                # 8 Save results
+                is_kept = best["iou"] >= self.iou_threshold
+                lbl_writer = lbl_kept_writer if is_kept else lbl_discarded_writer
+                target_dir = self.kept_dir if is_kept else self.discarded_dir
+
+                # 8a. save original image and corresponding ground truth for reference
+                Image.fromarray(to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
+                Image.fromarray((gt_odd_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
 
             for info in masks_info:
-                is_odd = (info["index"] == best["index"]) and is_kept
+                if self.dataset == 'O3':
+                    is_odd = (info["index"] == best["index"]) and is_kept
+                else:
+                    is_odd = info["is_odd"]
 
                 # 8b. save masks odd and normal
                 mask_suffix = "__ODD" if is_odd else ""
@@ -408,14 +430,15 @@ class GSAMDatasetLabeler:
                     })
 
             # 9. Log result
-            if is_kept:
-                self.kept_count += 1
-                self.coverage_list.append(coverage)
-                self.pollution_list.append(pollution)
-                # print(f"{image_name}: coverage = {coverage:.3f} - pollution = {pollution:.3f}")
-                logger.info(f" KEPT - best IoU = {best['iou']:.3f}")
-            else:
-                logger.info(f" DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
+            if self.dataset == 'O3':
+                if is_kept:
+                    self.kept_count += 1
+                    self.coverage_list.append(coverage)
+                    self.pollution_list.append(pollution)
+                    # print(f"{image_name}: coverage = {coverage:.3f} - pollution = {pollution:.3f}")
+                    logger.info(f" KEPT - best IoU = {best['iou']:.3f}")
+                else:
+                    logger.info(f" DISCARDED - best IoU = {best['iou']:.3f} < {self.iou_threshold}")
 
             return True
 
@@ -481,6 +504,7 @@ def main(args):
         gd_model=args.gd_model,  
         sam_predictor=args.sam_predictor, 
         device=args.device,
+        dataset=args.dataset,
         box_threshold=args.box_threshold,
         text_threshold=args.text_threshold,
         iou_threshold=args.iou_threshold,
@@ -509,6 +533,7 @@ if __name__ == '__main__':
     parser.add_argument('--gd-model', required=True)    # pass as path or str
     parser.add_argument('--sam-predictor', required=True)
     parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--dataset', type=str, default='O3')
     parser.add_argument('--box-threshold', type=float, default=0.30)
     parser.add_argument('--text-threshold', type=float, default=0.25)
     parser.add_argument('--iou-threshold', type=float, default=0.75)
