@@ -283,7 +283,7 @@ class GSAMDatasetLabeler:
                 else:
                     self.box_threshold = 0.30
         else:   # FLUX dataset
-            image_name = f"{row['triplet_id']}_v00.jpg"
+            image_name = f"{row['triplet_id']}_v00.png"
             class_name = f"{row['distractor_a_name']} . {row['distractor_b_name']} . {row['odd_name']}"
             num_distractors = 10    # a medium value. Not used because fixed NMS
 
@@ -406,6 +406,7 @@ class GSAMDatasetLabeler:
                 Image.fromarray(to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
                 Image.fromarray((gt_odd_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
             else:
+                lbl_writer = lbl_kept_writer
                 target_dir = self.kept_dir
                 out_image_dir = target_dir / base_name
                 os.makedirs(out_image_dir, exist_ok = True)
