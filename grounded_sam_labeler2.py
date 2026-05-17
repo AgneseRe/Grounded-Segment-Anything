@@ -380,8 +380,6 @@ class GSAMDatasetLabeler:
                 return False
             
             base_name = Path(image_name).stem
-            out_image_dir = target_dir / base_name
-            os.makedirs(out_image_dir, exist_ok = True)
 
             if self.dataset == 'O3':
                 best = max(masks_info, key = lambda x: x["iou"])    # best mask   
@@ -401,10 +399,16 @@ class GSAMDatasetLabeler:
                 is_kept = best["iou"] >= self.iou_threshold
                 lbl_writer = lbl_kept_writer if is_kept else lbl_discarded_writer
                 target_dir = self.kept_dir if is_kept else self.discarded_dir
+                out_image_dir = target_dir / base_name
+                os.makedirs(out_image_dir, exist_ok = True)
 
                 # 8a. save original image and corresponding ground truth for reference
                 Image.fromarray(to_numpy_image(image)).save(out_image_dir / f"{base_name}__img.png")
                 Image.fromarray((gt_odd_mask_bin * 255).astype(np.uint8)).save(out_image_dir / f"{base_name}__gt.png")
+            else:
+                target_dir = self.kept_dir
+                out_image_dir = target_dir / base_name
+                os.makedirs(out_image_dir, exist_ok = True)
 
             for info in masks_info:
                 if self.dataset == 'O3':
@@ -456,7 +460,8 @@ class GSAMDatasetLabeler:
         self.create_directories()
 
         # Load CSV
-        img_props = pd.read_csv(self.csv_path, sep = ";")
+        csv_sep = ";" if self.dataset == "O3" else ","
+        img_props = pd.read_csv(self.csv_path, sep = csv_sep)
         total_images = len(img_props) if self.max_images is None else min(len(img_props), self.max_images)
         logger.info(f"Processing {total_images} images from {len(img_props)} total.")
 
