@@ -289,9 +289,9 @@ class GSAMDatasetLabeler:
                 else:
                     self.box_threshold = 0.30
         else:   # FLUX dataset
-            a, b, odd = row['distractor_a_name'], row['distractor_b_name'], row['odd_name']
-            image_name = f"{a}_{b}_{odd}_v00.jpg"
-            class_name = f"{a} . {b} . {odd}"
+            odd, a, b = row['odd_name'], row['distractor_a_name'], row['distractor_b_name']
+            image_name = f"{odd}_{a}_{b}_v00.jpg"
+            class_name = f"{odd} . {a} . {b}"
             num_distractors = 10    # a medium value. Not used because fixed NMS
 
         logger.info(f"\nProcessing '{image_name}' (class '{class_name}')")
