@@ -283,8 +283,9 @@ class GSAMDatasetLabeler:
                 else:
                     self.box_threshold = 0.30
         else:   # FLUX dataset
-            image_name = f"{row['triplet_id']}_v00.png"
-            class_name = f"{row['distractor_a_name']} . {row['distractor_b_name']} . {row['odd_name']}"
+            a, b, odd = row['distractor_a_name'], row['distractor_b_name'], row['odd_name']
+            image_name = f"{a}_{b}_{odd}_v00.jpg"
+            class_name = f"{a} . {b} . {odd}"
             num_distractors = 10    # a medium value. Not used because fixed NMS
 
         logger.info(f"\nProcessing '{image_name}' (class '{class_name}')")
@@ -481,7 +482,7 @@ class GSAMDatasetLabeler:
             lbl_kept_writer.writeheader()
             lbl_discarded_writer.writeheader()
 
-            for index, row in tqdm(img_props.iloc[:total_images].iterrows(), 
+            for _, row in tqdm(img_props.iloc[:total_images].iterrows(), 
                 total=total_images, desc="GSAM Labeling Progress"):
                 self.process_single_image(row, lbl_kept_writer, lbl_discarded_writer) 
 
