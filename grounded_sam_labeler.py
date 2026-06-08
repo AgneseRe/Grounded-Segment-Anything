@@ -1,6 +1,5 @@
 import os
 import csv
-import json
 import torch
 import logging
 import numpy as np
@@ -8,6 +7,7 @@ import pandas as pd
 
 from PIL import Image
 from pathlib import Path
+from torchvision import models
 from typing import Optional, Tuple
 from argparse import ArgumentParser
 
@@ -15,7 +15,7 @@ from tqdm.auto import tqdm
 
 # Grounding DINO
 from GroundingDINO.groundingdino.util import box_ops
-from GroundingDINO.groundingdino.util.inference import annotate, apply_nms, load_image, predict
+from GroundingDINO.groundingdino.util.inference import apply_nms, load_image, predict
 
 # GSAM utilities
 from grounded_sam_labeler_util import compute_iou, keep_valid_boxes, load_gt_mask, to_numpy_image
@@ -24,6 +24,12 @@ from grounded_sam_labeler_util import compute_iou, keep_valid_boxes, load_gt_mas
 FORMAT = '%(asctime)s %(levelname)s %(message)s'
 logging.basicConfig(level = logging.INFO, format = FORMAT)
 logger = logging.getLogger(__name__)
+
+def load_resnet_encoder(device: torch.device):
+    resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1) 
+    encoder = torch.nn.Sequential(*(list(resnet.children())[:-1]))  # remove last FC layer
+    encoder.to(device).eval()
+    return encoder
 
 # ========== NON MAXIMUM SUPPRESSION SAM MASKS ==========
 def apply_nms_on_masks(masks_info, iou_threshold=0.2):
