@@ -94,12 +94,12 @@ class GSAMDatasetLabeler:
         gt_odd_dir,
         gt_dist_dir,
         csv_path,
-        csv_obj_desc_path,
         out_dir,
         gd_model,
         sam_predictor,
         device,
         dataset: str,   # O3 or FLUX
+        csv_obj_desc_path = None,
         box_threshold: float = 0.30,
         text_threshold: float = 0.25,
         iou_threshold: float = 0.75,
