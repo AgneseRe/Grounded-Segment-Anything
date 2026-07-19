@@ -94,6 +94,7 @@ class GSAMDatasetLabeler:
         gt_odd_dir,
         gt_dist_dir,
         csv_path,
+        csv_obj_desc_path,
         out_dir,
         gd_model,
         sam_predictor,
@@ -117,7 +118,8 @@ class GSAMDatasetLabeler:
             img_dir (Path): Directory containing dataset original images.
             gt_odd_dir (Path): Directory containing dataset ground truth masks for odd object.
             gt_dist_dir (Path): Directory containing dataset ground truth masks for distractors.
-            csv_path (Path): CSV file path containing dataset metadata.
+            csv_path (Path): CSV file containing dataset metadata.
+            csv_obj_desc_path (Path): CSV file containing object description for FLUX scenes. 
             out_dir (Path): Output directory for storing results.
             gd_model: Grounding DINO model instance.
             sam_predictor: SAM predictor instance.
@@ -139,6 +141,7 @@ class GSAMDatasetLabeler:
         self.gt_odd_dir = gt_odd_dir
         self.gt_dist_dir = gt_dist_dir
         self.csv_path = csv_path
+        self.csv_obj_desc_path = csv_obj_desc_path
         self.out_dir = out_dir
         self.gd_model = gd_model
         self.sam_predictor = sam_predictor
@@ -173,6 +176,25 @@ class GSAMDatasetLabeler:
         # Constants
         self.MIN_AREA_THRESHOLD = 0.005
         self.MAX_AREA_THRESHOLD = 0.40
+
+        # Object descriptions (concept -> description)
+        if self.dataset == 'FLUX':
+            self.concept2desc = self._load_concept2desc(csv_obj_desc_path)
+
+    def _load_concept2desc(self, csv_path) -> dict:
+        
+        if csv_path is None:
+            logger.warning("No csv path provided for object descriptions. Only concept names will be used as caption.")
+            return {}
+
+        desc_df = pd.read_csv(csv_path)
+        concept2desc = {}
+        for _, row in desc_df.iterrows():
+            desc = row['description']
+            desc = desc.split('with')[0].strip()
+            concept2desc[row['concept']] = desc
+
+        return concept2desc
 
     def create_directories(self):
         """
@@ -291,8 +313,11 @@ class GSAMDatasetLabeler:
         else:   # FLUX dataset
             odd, a, b = row['odd_name'], row['distractor_a_name'], row['distractor_b_name']
             image_name = f"{odd}_{a}_{b}_v00.jpg"
-            class_name = f"{odd} . {a} . {b}"
             num_distractors = 10    # a medium value. Not used because fixed NMS
+            if self.csv_obj_desc_path:
+                class_name = f"{self.concept2desc[odd]} . {self.concept2desc[a]} . {self.concept2desc[b]}"
+            else:
+                class_name = f"{odd} . {a} . {b}"
 
         logger.info(f"\nProcessing '{image_name}' (class '{class_name}')")
 
@@ -543,6 +568,8 @@ if __name__ == '__main__':
     parser.add_argument('--img-dir', type=Path, default=None)
     parser.add_argument('--gt-dir', type=Path, default=None)
     parser.add_argument('--csv-path', type=Path, default=None)
+    parser.add_argument('--csv-obj-desc-path', type=Path, default=None,
+        help='Path to object descriptions csv file (for FLUX generated scenes')
     parser.add_argument('--gd-model', required=True)    # pass as path or str
     parser.add_argument('--sam-predictor', required=True)
     parser.add_argument('--device', type=str, default='cuda')
@@ -552,7 +579,7 @@ if __name__ == '__main__':
     parser.add_argument('--iou-threshold', type=float, default=0.75)
     parser.add_argument('--ada-box-threshold', type=bool, default=False)
     parser.add_argument('--max-images', type=int, default=None, 
-                        help='Maximum number of images to process (for testing purposes)')
+        help='Maximum number of images to process (for testing purposes)')
 
     args = parser.parse_args()
 
