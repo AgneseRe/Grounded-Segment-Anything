@@ -96,7 +96,7 @@ class GSAMDatasetLabeler:
         sam_predictor,
         device,
         dataset,   # O3 or FLUX scenes
-        csv_obj_desc_path = None,
+        csv_obj_desc_path: str = None,
         box_threshold: float = 0.30,
         text_threshold: float = 0.25,
         iou_threshold: float = 0.75,
@@ -116,7 +116,7 @@ class GSAMDatasetLabeler:
             gt_odd_dir (Path): Directory containing dataset ground truth masks for odd object.
             gt_dist_dir (Path): Directory containing dataset ground truth masks for distractors.
             csv_path (Path): CSV file containing dataset metadata.
-            csv_obj_desc_path (Path): CSV file containing object description for FLUX scenes. 
+            csv_obj_desc_path (str): CSV file containing object description for FLUX scenes. 
             out_dir (Path): Output directory for storing results.
             gd_model: Grounding DINO model instance.
             sam_predictor: SAM predictor instance.
