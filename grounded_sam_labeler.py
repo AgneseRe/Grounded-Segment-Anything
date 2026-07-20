@@ -402,7 +402,7 @@ class GSAMDatasetLabeler:
                 if self.dataset == 'O3':
                     iou = compute_iou(mask_np, gt_odd_mask_bin)
                 else:
-                    is_the_odd = self.concept2desc[odd].lower() in detected_phrase.lower().strip()
+                    is_the_odd = self.concept2desc[odd].lower().replace(' ', '') in detected_phrase.lower().strip().replace(' ', '')
 
                 masks_info.append({
                     "index": i,
