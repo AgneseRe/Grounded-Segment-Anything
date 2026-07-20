@@ -1,6 +1,6 @@
 addict
 diffusers
-gradio
+# gradio    # not needed in Colab inference
 huggingface_hub
 matplotlib
 numpy
@@ -20,4 +20,4 @@ transformers
 yapf
 nltk
 fairscale
-litellm
+# litellm   # not used in this project
