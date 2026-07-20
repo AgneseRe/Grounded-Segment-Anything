@@ -1,3 +1,5 @@
+"""Pipeline for automatic labeling using Grounding DINO + SAM (GSAM)."""
+
 import os
 import csv
 import torch
@@ -7,17 +9,13 @@ import pandas as pd
 
 from PIL import Image
 from pathlib import Path
+from tqdm.auto import tqdm
 from torchvision import models
 from typing import Optional, Tuple
 from argparse import ArgumentParser
 
-from tqdm.auto import tqdm
-
-# Grounding DINO
 from GroundingDINO.groundingdino.util import box_ops
 from GroundingDINO.groundingdino.util.inference import apply_nms, load_image, predict
-
-# GSAM utilities
 from grounded_sam_labeler_util import compute_iou, keep_valid_boxes, load_gt_mask, to_numpy_image
 
 # Setup logging
@@ -25,14 +23,13 @@ FORMAT = '%(asctime)s %(levelname)s %(message)s'
 logging.basicConfig(level = logging.INFO, format = FORMAT)
 logger = logging.getLogger(__name__)
 
-def load_resnet_encoder(device: torch.device):
+def load_resnet_encoder(device: torch.device) -> torch.nn.Module:
     resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1) 
     encoder = torch.nn.Sequential(*(list(resnet.children())[:-1]))  # remove last FC layer
     encoder.to(device).eval()
     return encoder
 
-# ========== NON MAXIMUM SUPPRESSION SAM MASKS ==========
-def apply_nms_on_masks(masks_info, iou_threshold=0.2):
+def apply_nms_on_masks(masks_info: list, iou_threshold: float = 0.2) -> list:
 
     if len(masks_info) <= 1:
         return masks_info
@@ -98,17 +95,17 @@ class GSAMDatasetLabeler:
         gd_model,
         sam_predictor,
         device,
-        dataset: str,   # O3 or FLUX
+        dataset,   # O3 or FLUX scenes
         csv_obj_desc_path = None,
         box_threshold: float = 0.30,
         text_threshold: float = 0.25,
         iou_threshold: float = 0.75,
         nms_threshold: Optional[float] = None,
         ada_box_threshold: bool = False,  
-        ada_nms_threshold: bool = True, 
+        ada_nms_threshold: bool = False, 
         nms_strategy: str = "num_distractors",
         penalty_score: float = 1e-4,
-        max_images: Optional[int] = None    # for testing purposes
+        max_images: Optional[int] = None,   # for testing purposes
     ) -> None:
         """
         Initializes GSAMDatasetLabeler class. GSAM is used to label custom dataset.
@@ -204,7 +201,6 @@ class GSAMDatasetLabeler:
         os.makedirs(self.kept_dir, exist_ok = True)
         os.makedirs(self.discarded_dir, exist_ok = True)
 
-    # Adaptive Non-Maximum Suppression threshold [0.30, 0.70]
     def compute_nms_threshold_distractors(self, num_distractors: int) -> float:
         """
         Compute appropriate NMS threshold, based on the number of distractors. If the image 
@@ -283,7 +279,6 @@ class GSAMDatasetLabeler:
             logger.warning(f"Error: unknown NMS strategy '{self.nms_strategy}'. Using default.")
             return 0.50
 
-    # Process image
     def process_single_image(self, row: pd.Series, lbl_kept_writer: csv.DictWriter, lbl_discarded_writer: csv.DictWriter) -> bool:
         """
         Processes one single image using GSAM. Grounding DINO is used to predict bounding boxes, 
@@ -304,22 +299,35 @@ class GSAMDatasetLabeler:
             class_name = row['target_type']
             num_distractors = row['num_distractors']
 
-            # Check if adaptive box threshold mode
-            if self.ada_box_threshold: 
-                if num_distractors >= 30:
-                    self.box_threshold = 0.25
-                else:
-                    self.box_threshold = 0.30
-        else:   # FLUX dataset
-            odd, a, b = row['odd_name'], row['distractor_a_name'], row['distractor_b_name']
-            image_name = f"{odd}_{a}_{b}_v00.jpg"
-            num_distractors = 10    # a medium value. Not used because fixed NMS
+            if self.ada_box_threshold:
+                self.box_threshold = 0.25 if num_distractors >= 30 else 0.30
+
+        elif self.dataset == 'FLUX':
+            odd = row['odd_name']
+            a = row['distractor_a_name']
+            b = row['distractor_b_name']
+            
+            # search for corresponding scene
+            pattern = f"{odd}_{a}_{b}_v*.jpg"
+            matches = sorted(self.img_dir.glob(pattern))
+            if not matches:
+                logger.warning(f"No image found for pattern '{pattern}'")
+                return None
+            if len(matches) > 1:
+                logger.warning(f"Multiple images found for pattern '{pattern}'. Using '{matches[0].name}'")
+
+            image_name = matches[0].name
+            num_distractors = 10    # not used because fixed NMS
+
             if self.csv_obj_desc_path:
                 class_name = f"{self.concept2desc[odd]} . {self.concept2desc[a]} . {self.concept2desc[b]}"
             else:
                 class_name = f"{odd} . {a} . {b}"
+        
+        else:
+            raise ValueError(f"Unknown dataset: {self.dataset}")
 
-        logger.info(f"\nProcessing '{image_name}' (class '{class_name}')")
+        logger.info(f"\nProcessing '{image_name}' (caption '{class_name}')")
 
         try:
             # 1. Load image to process
@@ -338,7 +346,7 @@ class GSAMDatasetLabeler:
                 caption = class_name,
                 box_threshold = self.box_threshold,
                 text_threshold = self.text_threshold,
-                nms_threshold=None  # apply later. We need logits, boxes. Line 231
+                nms_threshold = None,  # apply later. We need logits, boxes. Line 231
             )
 
             boxes, logits, phrases = keep_valid_boxes(boxes, logits, phrases, self.MIN_AREA_THRESHOLD, self.MAX_AREA_THRESHOLD)
@@ -351,7 +359,6 @@ class GSAMDatasetLabeler:
 
             # 4. Compute NMS threshold to apply
             nms_threshold = self.get_adaptive_nms_threshold(num_distractors, logits, boxes, height, width)
-            # print(f'NMS strategy: {self.nms_strategy}, NMS threshold: {nms_threshold}')
             if nms_threshold is not None:
                 boxes, logits, phrases = apply_nms(boxes, logits, phrases, nms_threshold)
 
@@ -387,6 +394,7 @@ class GSAMDatasetLabeler:
                 self.total_masks += 1
                 mask_np = mask_tensor[0].detach().cpu().numpy()
                 detected_phrase = phrases[i] if i < len(phrases) else class_name
+                print(detected_phrase)
 
                 iou = 0.0
                 is_the_odd = False
@@ -406,7 +414,7 @@ class GSAMDatasetLabeler:
                     "logit": logits[i].item() if i < len(logits) else 0.0
                 })
             
-            masks_info = apply_nms_on_masks(masks_info, iou_threshold=0.2)
+            masks_info = apply_nms_on_masks(masks_info, iou_threshold = 0.2)
             if not masks_info:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
@@ -538,6 +546,7 @@ def main(args):
         img_dir=args.img_dir,
         gt_odd_dir=args.gt_odd_dir,
         csv_path=args.csv_path,
+        csv_obj_desc_path=args.csv_obj_desc_path,
         out_dir=args.out_dir,
         gd_model=args.gd_model,  
         sam_predictor=args.sam_predictor, 
@@ -547,7 +556,7 @@ def main(args):
         text_threshold=args.text_threshold,
         iou_threshold=args.iou_threshold,
         ada_box_threshold=args.ada_box_threshold,
-        max_images=args.max_images
+        max_images=args.max_images,
     )
 
     labeler.run()
@@ -569,7 +578,7 @@ if __name__ == '__main__':
     parser.add_argument('--gt-dir', type=Path, default=None)
     parser.add_argument('--csv-path', type=Path, default=None)
     parser.add_argument('--csv-obj-desc-path', type=Path, default=None,
-        help='Path to object descriptions csv file (for FLUX generated scenes')
+        help='Path to object descriptions csv file (for FLUX generated scenes)')
     parser.add_argument('--gd-model', required=True)    # pass as path or str
     parser.add_argument('--sam-predictor', required=True)
     parser.add_argument('--device', type=str, default='cuda')
@@ -593,3 +602,6 @@ if __name__ == '__main__':
 
     if args.csv_path is None:
         args.csv_path = args.root_dir / 'image_properties.csv'
+
+    if args.csv_obj_desc_path is None:
+        args.csv_obj_desc_path = args.root_dir / 'triplets_final_cross_category.csv'
