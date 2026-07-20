@@ -312,12 +312,12 @@ class GSAMDatasetLabeler:
             matches = sorted(self.img_dir.glob(pattern))
             if not matches:
                 logger.warning(f"No image found for pattern '{pattern}'")
-                return None
+                return False
             if len(matches) > 1:
                 logger.warning(f"Multiple images found for pattern '{pattern}'. Using '{matches[0].name}'")
 
             image_name = matches[0].name
-            num_distractors = 10    # not used because fixed NMS
+            num_distractors = 2    # not used because fixed NMS
 
             if self.csv_obj_desc_path:
                 class_name = f"{self.concept2desc[odd]} . {self.concept2desc[a]} . {self.concept2desc[b]}"
@@ -402,7 +402,7 @@ class GSAMDatasetLabeler:
                 if self.dataset == 'O3':
                     iou = compute_iou(mask_np, gt_odd_mask_bin)
                 else:
-                    is_the_odd = row['odd_name'].replace('_', ' ').lower() in detected_phrase
+                    is_the_odd = self.concept2desc[odd].lower() in detected_phrase.lower().strip()
 
                 masks_info.append({
                     "index": i,
