@@ -470,9 +470,9 @@ class GSAMDatasetLabeler:
                     "is_odd": int(is_odd),
                     "iou": f"{info['iou']:.3f}",
                     "confidence": f"{info['logit']:.3f}",
-                    "target_type": class_name,
+                    "target_type": class_name if self.dataset == 'O3' else class_name.split('.')[0].strip(),
                     "num_distractors": num_distractors
-                    })
+                })
 
             # 9. Log result
             if self.dataset == 'O3':
