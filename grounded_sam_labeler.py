@@ -601,7 +601,4 @@ if __name__ == '__main__':
         args.gt_odd_dir = args.root_dir / 'targ_labels'
 
     if args.csv_path is None:
-        args.csv_path = args.root_dir / 'image_properties.csv'
-
-    if args.csv_obj_desc_path is None:
-        args.csv_obj_desc_path = args.root_dir / 'triplets_final_cross_category.csv'
+        args.csv_path = args.root_dir / 'image_properties.csv'  # triplets_final_cross_category.csv
