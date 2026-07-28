@@ -394,7 +394,6 @@ class GSAMDatasetLabeler:
                 self.total_masks += 1
                 mask_np = mask_tensor[0].detach().cpu().numpy()
                 detected_phrase = phrases[i] if i < len(phrases) else class_name
-                print(detected_phrase)
 
                 iou = 0.0
                 is_the_odd = False
@@ -402,7 +401,8 @@ class GSAMDatasetLabeler:
                 if self.dataset == 'O3':
                     iou = compute_iou(mask_np, gt_odd_mask_bin)
                 else:
-                    is_the_odd = self.concept2desc[odd].lower().replace(' ', '') in detected_phrase.lower().strip().replace(' ', '')
+                    # is_the_odd = detected_phrase.lower().strip().replace(' ', '') in self.concept2desc[odd].lower().replace(' ', '')
+                    is_the_odd = detected_phrase.lower().strip().replace(' ', '').endswith(self.concept2desc[odd].lower().split()[-1])
 
                 masks_info.append({
                     "index": i,
