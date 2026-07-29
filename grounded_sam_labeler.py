@@ -194,6 +194,7 @@ class GSAMDatasetLabeler:
 
         return concept2desc
     
+    @staticmethod
     def _best_matching_concept_label(detected_phrase: str, concept_descriptions: dict) -> Optional[str]:
         """
         Assigns a Grounding DINO detected phrase to whichever of the scene's concepts
