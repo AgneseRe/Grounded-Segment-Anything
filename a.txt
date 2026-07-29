@@ -193,11 +193,18 @@ class GSAMDatasetLabeler:
             concept2desc[row['concept']] = desc
 
         return concept2desc
-    
+
+    @staticmethod
     def _best_matching_concept_label(detected_phrase: str, concept_descriptions: dict) -> Optional[str]:
         """
         Assigns a Grounding DINO detected phrase to whichever of the scene's concepts
         (odd / distractor_a / distractor_b) shares the most words with it.
+
+        Rather than testing the detected phrase against the ODD description in isolation
+        (fragile: descriptions vary in structure, e.g. trailing "in X"/"on Y" clauses that
+        aren't the object's head noun), this compares it against all concepts present in
+        the same caption and picks the closest one. This also naturally guards against a
+        generic shared word (e.g. a color) being wrongly attributed to the ODD object.
 
         Args:
             detected_phrase (str): Phrase returned by Grounding DINO for a given box.
@@ -211,7 +218,7 @@ class GSAMDatasetLabeler:
         detected_tokens = set(detected_phrase.lower().strip().split())
         if not detected_tokens:
             return None
-        
+
         best_label, best_overlap = None, 0
         for label, description in concept_descriptions.items():
             desc_tokens = set(description.lower().strip().split())
@@ -436,7 +443,6 @@ class GSAMDatasetLabeler:
                 if self.dataset == 'O3':
                     iou = compute_iou(mask_np, gt_odd_mask_bin)
                 else:
-                    # is_the_odd = detected_phrase.lower().strip().replace(' ', '').endswith(self.concept2desc[odd].lower().split()[-1])
                     best_label = self._best_matching_concept_label(detected_phrase, concept_descriptions)
                     is_the_odd = (best_label == "odd")
 
@@ -454,16 +460,15 @@ class GSAMDatasetLabeler:
             if not masks_info:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
-            
-            # Check number of no ODD mask -> is_the_odd value
+
             if self.dataset == 'FLUX' and not any(info["is_odd"] for info in masks_info):
                 detected_phrases = [info["phrase"] for info in masks_info]
                 logger.warning(
-                    f"No ODD mask matched for '{image_name}' (odd='{self.concept2desc[odd]}', "
+                    f"No ODD mask matched for '{image_name}' (odd='{concept_descriptions['odd']}', "
                     f"detected phrases={detected_phrases})"
                 )
                 self.missing_odd_count += 1
-            
+
             base_name = Path(image_name).stem
 
             if self.dataset == 'O3':
