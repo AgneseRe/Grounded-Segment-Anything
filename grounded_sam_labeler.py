@@ -170,6 +170,8 @@ class GSAMDatasetLabeler:
         self.missing_distractors_count = 0
         self.missing_dino_detections_count = 0
 
+        self.missing_odd_count = 0
+
         # Constants
         self.MIN_AREA_THRESHOLD = 0.005
         self.MAX_AREA_THRESHOLD = 0.40
@@ -418,6 +420,15 @@ class GSAMDatasetLabeler:
             if not masks_info:
                 logger.warning(f'No valid masks for {image_name} after NMS')
                 return False
+            
+            # Check number of no ODD mask -> is_the_odd value
+            if self.dataset == 'FLUX' and not any(info["is_odd"] for info in masks_info):
+                detected_phrases = [info["phrase"] for info in masks_info]
+                logger.warning(
+                    f"No ODD mask matched for '{image_name}' (odd='{self.concept2desc[odd]}', "
+                    f"detected phrases={detected_phrases})"
+                )
+                self.missing_odd_count += 1
             
             base_name = Path(image_name).stem
 
